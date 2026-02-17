@@ -10,7 +10,7 @@ st.set_page_config(page_title="Grapevine Web", layout="wide", page_icon="🍇")
 @st.cache_resource
 def init_connection():
     # Recuerda cambiar esto por tu link de MongoDB Atlas cuando subas a la nube
-    return pymongo.MongoClient("mongodb://localhost:27017/")
+    return pymongo.MongoClient("mongodb+srv://uriel_db:Macuca12.@cluster0.opwh0ou.mongodb.net/?appName=Cluster0")
 
 try:
     client = init_connection()
@@ -298,4 +298,5 @@ if st.session_state['usuario']:
     else:
         vista_residente()
 else:
+
     mostrar_login()
