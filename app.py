@@ -65,80 +65,98 @@ def mostrar_login():
 
 def vista_residente():
     u = st.session_state['usuario']
+    
+    # Barra lateral con datos del usuario
     st.sidebar.title(f"Hola, {u['nombre']} 👋")
     st.sidebar.write(f"🏠 Casa: {u.get('casa', 'S/N')}")
     if st.sidebar.button("Cerrar Sesión"):
         logout()
 
+    # Pestañas principales
     tab1, tab2 = st.tabs(["💰 Mis Pagos", "📢 Reportes"])
 
     with tab1:
         st.header("Estado de Cuenta")
         
-        # --- CALENDARIO VISUAL ---
+        # --- SECCIÓN 1: CALENDARIO VISUAL (CON SELECTOR DE AÑO) ---
         st.subheader("Resumen Anual")
-        col_cal, col_ref = st.columns([4, 1])
-        with col_cal:
-            anio = datetime.now().year
-            meses = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
-            cols = st.columns(6)
-            for i, mes in enumerate(meses):
-                mes_num = i + 1
-                patron = f"^{anio}-{mes_num:02d}"
-                pago = db["pagos"].find_one({"casa": u['casa'], "tipo": "Mantenimiento", "fecha": {"$regex": patron}})
-                
-                estado = "⚪"
-                if pago:
-                    estado = "🟢" if pago['estado'] == 'Pagado' else "🔴"
-                
-                cols[i % 6].markdown(f"**{mes}**")
-                cols[i % 6].markdown(f"### {estado}")
         
+        # Creamos columnas para poner el selector de año y la leyenda juntos
+        col_anio, col_ref = st.columns([1, 3])
+        
+        with col_anio:
+            # AQUÍ ESTÁ EL CAMBIO: Selector de año interactivo
+            anio_sel = st.number_input("Año:", min_value=2020, max_value=2030, value=datetime.now().year)
+            
         with col_ref:
-            st.info("🟢 Pagado\n\n🔴 Pendiente\n\n⚪ Futuro")
+            # Leyenda visual
+            st.info("🟢 Pagado | 🔴 Pendiente | ⚪ Sin cargo")
+
+        # Generación del Grid de Meses
+        meses = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
+        cols = st.columns(6) # 6 columnas para que queden 2 filas de meses
+        
+        for i, mes in enumerate(meses):
+            mes_num = i + 1
+            # Buscamos pagos que coincidan con el Año Seleccionado y el Mes actual del ciclo
+            patron = f"^{anio_sel}-{mes_num:02d}"
+            
+            pago = db["pagos"].find_one({
+                "casa": u['casa'], 
+                "tipo": "Mantenimiento", 
+                "fecha": {"$regex": patron}
+            })
+            
+            # Determinamos el color del semáforo
+            estado = "⚪" # Gris (Neutro)
+            if pago:
+                if pago['estado'] == 'Pagado':
+                    estado = "🟢" # Verde
+                else:
+                    estado = "🔴" # Rojo
+            
+            # Mostramos el mes y su estado
+            with cols[i % 6]:
+                st.markdown(f"**{mes}**")
+                st.markdown(f"## {estado}")
 
         st.divider()
         
-        # --- HISTORIAL POR CATEGORÍAS (NUEVO) ---
-        st.subheader("Historial Detallado")
+        # --- SECCIÓN 2: HISTORIAL DETALLADO POR CATEGORÍAS ---
+        st.subheader(f"Historial Detallado ({anio_sel})") # Muestra el año seleccionado también aquí
         
-        # Traemos todos los pagos
+        # Filtramos también la lista de abajo para que sea congruente con el año, 
+        # o puedes dejarlo general. Aquí traigo TODO el historial para que no se pierda nada.
         pagos = list(db["pagos"].find({"casa": u['casa']}).sort("fecha", -1))
         
         if pagos:
             df_pagos = pd.DataFrame(pagos)
-            
-            # Aseguramos que exista la columna 'tipo' (para compatibilidad con datos viejos)
-            if 'tipo' not in df_pagos.columns:
-                df_pagos['tipo'] = 'Mantenimiento'
+            if 'tipo' not in df_pagos.columns: df_pagos['tipo'] = 'Mantenimiento'
 
-            # Filtramos los DataFrames
+            # Filtros
             df_mto = df_pagos[df_pagos['tipo'] == 'Mantenimiento']
             df_extra = df_pagos[df_pagos['tipo'] == 'Extra']
             df_multa = df_pagos[df_pagos['tipo'] == 'Multa']
 
-            # 1. SECCIÓN MANTENIMIENTOS
             with st.expander("📅 Cuotas de Mantenimiento", expanded=True):
                 if not df_mto.empty:
                     st.dataframe(df_mto[["fecha", "concepto", "monto", "estado"]], use_container_width=True, hide_index=True)
                 else:
-                    st.caption("No hay registros de mantenimiento.")
+                    st.caption("No hay registros.")
 
-            # 2. SECCIÓN EXTRAS
-            with st.expander("➕ Cargos Extra (Tarjetas, Reservas, etc.)"):
+            with st.expander("➕ Cargos Extra"):
                 if not df_extra.empty:
                     st.dataframe(df_extra[["fecha", "concepto", "monto", "estado"]], use_container_width=True, hide_index=True)
                 else:
-                    st.caption("No tienes cargos extra.")
+                    st.caption("Sin cargos extra.")
 
-            # 3. SECCIÓN MULTAS
-            with st.expander("⚠️ Multas e Infracciones"):
+            with st.expander("⚠️ Multas"):
                 if not df_multa.empty:
                     st.dataframe(df_multa[["fecha", "concepto", "monto", "estado"]], use_container_width=True, hide_index=True)
                 else:
-                    st.success("¡Felicidades! No tienes multas registradas.")
+                    st.success("Sin multas.")
         else:
-            st.info("Aún no tienes historial de pagos.")
+            st.info("No hay historial registrado.")
 
     with tab2:
         st.header("Generar Reporte")
@@ -298,5 +316,4 @@ if st.session_state['usuario']:
     else:
         vista_residente()
 else:
-
     mostrar_login()
