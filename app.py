@@ -6,29 +6,11 @@ import pandas as pd
 # --- CONFIGURACIÓN DE LA PÁGINA ---
 st.set_page_config(page_title="Grapevine Web", layout="wide", page_icon="🍇")
 
-# --- CSS MÁGICO PARA CELULARES ---
-# Esto evita que Streamlit convierta las columnas en una lista vertical
-st.markdown("""
-    <style>
-    @media (max-width: 768px) {
-        div[data-testid="stHorizontalBlock"] {
-            flex-direction: row !important;
-            flex-wrap: nowrap !important;
-        }
-        div[data-testid="column"] {
-            min-width: 0 !important;
-            padding: 0 3px !important;
-        }
-    }
-    </style>
-""", unsafe_allow_html=True)
-
 # --- CONEXIÓN A BASE DE DATOS ---
 @st.cache_resource
 def init_connection():
-    # Pega tu link de Atlas aquí:
-   return pymongo.MongoClient("mongodb+srv://uriel_db:Macuca12.@cluster0.opwh0ou.mongodb.net/?appName=Cluster0")
-
+    # Pega tu link de MongoDB Atlas aquí:
+    return pymongo.MongoClient("mongodb+srv://uriel_db:Macuca12.@cluster0.opwh0ou.mongodb.net/?appName=Cluster0")
 try:
     client = init_connection()
     db = client["condominio_db"]
@@ -90,36 +72,53 @@ def vista_residente():
     with tab1:
         st.header("Estado de Cuenta")
         
-        # --- CALENDARIO VISUAL ---
-        st.subheader("Resumen Anual")
-        anio_sel = st.number_input("Año:", min_value=2020, max_value=2030, value=datetime.now().year)
-        st.info("🟢 Pagado | 🔴 Pendiente | ⚪ Sin cargo")
-
+        # --- SELECTOR DE AÑO ---
+        anio_sel = st.number_input("Selecciona el Año:", min_value=2020, max_value=2030, value=datetime.now().year)
+        
+        # --- WIDGET DE CALENDARIO COMPACTO (TIPO APP) ---
+        # Este código crea el recuadro negro con los meses en cuadrícula perfecta para celular
+        
+        html_calendario = f"""
+        <div style="background-color: #1E1E1E; padding: 20px; border-radius: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); max-width: 350px; margin: 10px auto; border: 1px solid #333;">
+            <h3 style="text-align: center; color: #FFFFFF; margin-top: 0; margin-bottom: 20px; font-family: sans-serif;">Resumen {anio_sel}</h3>
+            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; text-align: center;">
+        """
+        
         meses = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
         
-        # Generamos 4 filas con 3 columnas cada una (Cuadrícula 3x4)
-        for fila in range(4):
-            cols = st.columns(3)
-            for col in range(3):
-                idx = fila * 3 + col
-                mes = meses[idx]
-                mes_num = idx + 1
-                patron = f"^{anio_sel}-{mes_num:02d}"
-                
-                pago = db["pagos"].find_one({
-                    "casa": u['casa'], 
-                    "tipo": "Mantenimiento", 
-                    "fecha": {"$regex": patron}
-                })
-                
-                estado = "⚪"
-                if pago:
-                    estado = "🟢" if pago['estado'] == 'Pagado' else "🔴"
-                
-                with cols[col]:
-                    with st.container(border=True):
-                        st.markdown(f"<div style='text-align: center; font-size: 14px;'><b>{mes}</b><br><span style='font-size: 20px;'>{estado}</span></div>", unsafe_allow_html=True)
-
+        for i, mes in enumerate(meses):
+            mes_num = i + 1
+            patron = f"^{anio_sel}-{mes_num:02d}"
+            
+            pago = db["pagos"].find_one({
+                "casa": u['casa'], 
+                "tipo": "Mantenimiento", 
+                "fecha": {"$regex": patron}
+            })
+            
+            # Colores de los círculos
+            estado = "⚪" # Gris / Sin cargo
+            if pago:
+                estado = "🟢" if pago['estado'] == 'Pagado' else "🔴"
+            
+            # Agregamos cada mes al recuadro
+            html_calendario += f"""
+                <div>
+                    <div style="color: #A0A0A0; font-size: 15px; font-weight: bold; margin-bottom: 5px;">{mes}</div>
+                    <div style="font-size: 24px;">{estado}</div>
+                </div>
+            """
+            
+        html_calendario += """
+            </div>
+            <div style="text-align: center; margin-top: 20px; font-size: 12px; color: #888;">
+                🟢 Pagado &nbsp;|&nbsp; 🔴 Pendiente &nbsp;|&nbsp; ⚪ Sin cargo
+            </div>
+        </div>
+        """
+        
+        # Mostramos el recuadro en la página
+        st.markdown(html_calendario, unsafe_allow_html=True)
         st.divider()
         
         # --- HISTORIAL TABLAS COMPACTAS ---
@@ -218,44 +217,42 @@ def vista_admin():
             st.divider()
             
             anio_sel = st.number_input("Año de Gestión:", min_value=2020, max_value=2030, value=datetime.now().year)
-            st.info("Gris: Crear deuda | Rojo: Cobrar")
+            st.info("Generar deuda o Cobrar:")
 
             st.subheader(f"Calendario {anio_sel}")
             meses = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
             
-            # Cuadrícula 3x4 asegurada por el CSS
-            for fila in range(4):
-                cols = st.columns(3)
-                for col in range(3):
-                    idx = fila * 3 + col
-                    mes = meses[idx]
-                    mes_num = idx + 1
-                    patron = f"^{anio_sel}-{mes_num:02d}"
-                    pago = db["pagos"].find_one({
-                        "usuario_id": usuario_actual["_id"],
-                        "tipo": "Mantenimiento",
-                        "fecha": {"$regex": patron}
-                    })
+            # En modo admin usamos columnas de Streamlit para que los botones sean funcionales.
+            # En celular se volverán una lista apilada, lo cual es mejor para que los botones sean grandes y fáciles de presionar.
+            cols = st.columns(3)
+            for i, mes in enumerate(meses):
+                mes_num = i + 1
+                patron = f"^{anio_sel}-{mes_num:02d}"
+                pago = db["pagos"].find_one({
+                    "usuario_id": usuario_actual["_id"],
+                    "tipo": "Mantenimiento",
+                    "fecha": {"$regex": patron}
+                })
 
-                    with cols[col]:
-                        with st.container(border=True):
-                            st.markdown(f"<div style='text-align: center; font-size: 14px;'><b>{mes}</b></div>", unsafe_allow_html=True)
-                            if pago:
-                                if pago['estado'] == 'Pagado':
-                                    st.button("✅ OK", key=f"btn_ok_{idx}", disabled=True, use_container_width=True)
-                                else:
-                                    if st.button("🔴 Cobrar", key=f"btn_pay_{idx}", use_container_width=True):
-                                        db["pagos"].update_one({"_id": pago["_id"]}, {"$set": {"estado": "Pagado", "fecha_pago": datetime.now().strftime("%Y-%m-%d")}})
-                                        st.rerun()
+                with cols[i % 3]:
+                    with st.container(border=True):
+                        st.markdown(f"<div style='text-align: center; font-size: 14px;'><b>{mes}</b></div>", unsafe_allow_html=True)
+                        if pago:
+                            if pago['estado'] == 'Pagado':
+                                st.button("✅ OK", key=f"btn_ok_{i}", disabled=True, use_container_width=True)
                             else:
-                                if st.button("⚪ Generar", key=f"btn_new_{idx}", use_container_width=True):
-                                    fecha_construida = f"{anio_sel}-{mes_num:02d}-01"
-                                    db["pagos"].insert_one({
-                                        "usuario_id": usuario_actual["_id"], "casa": usuario_actual.get("casa"), "nombre_usuario": usuario_actual.get("nombre"),
-                                        "tipo": "Mantenimiento", "concepto": f"Mantenimiento {mes} {anio_sel}", "monto": "500", 
-                                        "estado": "Pendiente", "fecha": fecha_construida
-                                    })
+                                if st.button("🔴 Cobrar", key=f"btn_pay_{i}", use_container_width=True):
+                                    db["pagos"].update_one({"_id": pago["_id"]}, {"$set": {"estado": "Pagado", "fecha_pago": datetime.now().strftime("%Y-%m-%d")}})
                                     st.rerun()
+                        else:
+                            if st.button("⚪ Generar", key=f"btn_new_{i}", use_container_width=True):
+                                fecha_construida = f"{anio_sel}-{mes_num:02d}-01"
+                                db["pagos"].insert_one({
+                                    "usuario_id": usuario_actual["_id"], "casa": usuario_actual.get("casa"), "nombre_usuario": usuario_actual.get("nombre"),
+                                    "tipo": "Mantenimiento", "concepto": f"Mantenimiento {mes} {anio_sel}", "monto": "500", 
+                                    "estado": "Pendiente", "fecha": fecha_construida
+                                })
+                                st.rerun()
 
             st.divider()
             
