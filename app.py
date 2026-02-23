@@ -72,11 +72,9 @@ def vista_residente():
     with tab1:
         st.header("Estado de Cuenta")
         
-        # --- SELECTOR DE AÑO ---
         anio_sel = st.number_input("Selecciona el Año:", min_value=2020, max_value=2030, value=datetime.now().year)
         
-        # --- WIDGET DE CALENDARIO COMPACTO (TIPO APP) ---
-        # Le quitamos la sangría a la izquierda para que Streamlit no lo confunda con código
+        # Widget Calendario
         html_calendario = f"""<div style="background-color: #1E1E1E; padding: 20px; border-radius: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); max-width: 350px; margin: 10px auto; border: 1px solid #333;">
 <h3 style="text-align: center; color: #FFFFFF; margin-top: 0; margin-bottom: 20px; font-family: sans-serif;">Resumen {anio_sel}</h3>
 <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; text-align: center;">"""
@@ -86,18 +84,11 @@ def vista_residente():
         for i, mes in enumerate(meses):
             mes_num = i + 1
             patron = f"^{anio_sel}-{mes_num:02d}"
+            pago = db["pagos"].find_one({"casa": u['casa'], "tipo": "Mantenimiento", "fecha": {"$regex": patron}})
             
-            pago = db["pagos"].find_one({
-                "casa": u['casa'], 
-                "tipo": "Mantenimiento", 
-                "fecha": {"$regex": patron}
-            })
+            estado = "⚪"
+            if pago: estado = "🟢" if pago['estado'] == 'Pagado' else "🔴"
             
-            estado = "⚪" # Gris / Sin cargo
-            if pago:
-                estado = "🟢" if pago['estado'] == 'Pagado' else "🔴"
-            
-            # Sin espacios a la izquierda
             html_calendario += f"""
 <div>
 <div style="color: #A0A0A0; font-size: 15px; font-weight: bold; margin-bottom: 5px;">{mes}</div>
@@ -111,19 +102,16 @@ def vista_residente():
 </div>
 </div>"""
         
-        # Mostramos el recuadro
         st.markdown(html_calendario, unsafe_allow_html=True)
         st.divider()
         
-        # --- HISTORIAL TABLAS COMPACTAS ---
+        # Historial Tablas
         st.subheader(f"Historial Detallado ({anio_sel})")
         pagos = list(db["pagos"].find({"casa": u['casa']}).sort("fecha", -1))
         
         if pagos:
             df_pagos = pd.DataFrame(pagos)
-            if 'tipo' not in df_pagos.columns: 
-                df_pagos['tipo'] = 'Mantenimiento'
-
+            if 'tipo' not in df_pagos.columns: df_pagos['tipo'] = 'Mantenimiento'
             df_pagos = df_pagos.rename(columns={"fecha": "Fecha", "concepto": "Concepto", "monto": "$", "estado": "Estado"})
 
             df_mto = df_pagos[df_pagos['tipo'] == 'Mantenimiento']
@@ -131,22 +119,16 @@ def vista_residente():
             df_multa = df_pagos[df_pagos['tipo'] == 'Multa']
 
             with st.expander("📅 Cuotas de Mantenimiento", expanded=True):
-                if not df_mto.empty:
-                    st.table(df_mto[["Fecha", "Concepto", "$", "Estado"]].set_index("Fecha"))
-                else:
-                    st.caption("No hay registros de mantenimiento.")
+                if not df_mto.empty: st.table(df_mto[["Fecha", "Concepto", "$", "Estado"]].set_index("Fecha"))
+                else: st.caption("No hay registros.")
 
             with st.expander("➕ Cargos Extra (Tarjetas, Reservas, etc.)"):
-                if not df_extra.empty:
-                    st.table(df_extra[["Fecha", "Concepto", "$", "Estado"]].set_index("Fecha"))
-                else:
-                    st.caption("No tienes cargos extra.")
+                if not df_extra.empty: st.table(df_extra[["Fecha", "Concepto", "$", "Estado"]].set_index("Fecha"))
+                else: st.caption("Sin cargos extra.")
 
             with st.expander("⚠️ Multas e Infracciones"):
-                if not df_multa.empty:
-                    st.table(df_multa[["Fecha", "Concepto", "$", "Estado"]].set_index("Fecha"))
-                else:
-                    st.success("¡Felicidades! No tienes multas registradas.")
+                if not df_multa.empty: st.table(df_multa[["Fecha", "Concepto", "$", "Estado"]].set_index("Fecha"))
+                else: st.success("Sin multas.")
         else:
             st.info("Aún no tienes historial de pagos.")
 
@@ -156,11 +138,8 @@ def vista_residente():
         if st.button("Enviar Reporte"):
             if desc:
                 db["reportes"].insert_one({
-                    "usuario": u["nombre"],
-                    "casa": u["casa"],
-                    "descripcion": desc,
-                    "estado": "Pendiente",
-                    "fecha": datetime.now().strftime("%Y-%m-%d")
+                    "usuario": u["nombre"], "casa": u["casa"], "descripcion": desc,
+                    "estado": "Pendiente", "fecha": datetime.now().strftime("%Y-%m-%d")
                 })
                 st.success("Reporte enviado correctamente")
                 st.rerun()
@@ -171,6 +150,7 @@ def vista_residente():
             df_rep = pd.DataFrame(reportes)
             df_rep = df_rep.rename(columns={"fecha": "Fecha", "descripcion": "Descripción", "estado": "Estado"})
             st.table(df_rep[["Fecha", "Descripción", "Estado"]].set_index("Fecha"))
+
 def vista_admin():
     st.sidebar.title("Panel Admin 🛡️")
     menu = st.sidebar.radio("Ir a:", ["Usuarios", "Pagos y Finanzas", "Reportes"])
@@ -195,10 +175,13 @@ def vista_admin():
         
         usuarios = list(db["usuarios"].find())
         if usuarios:
-            st.dataframe(pd.DataFrame(usuarios)[["nombre", "casa", "rol"]], use_container_width=True)
+            # Ahora la tabla de usuarios también es compacta y bonita
+            df_users = pd.DataFrame(usuarios)[["nombre", "casa", "rol"]]
+            df_users = df_users.rename(columns={"nombre": "Nombre", "casa": "Casa", "rol": "Rol"})
+            st.table(df_users.set_index("Nombre"))
 
     elif menu == "Pagos y Finanzas":
-        st.title("Control Financiero Visual")
+        st.title("Control Financiero")
         
         usuarios = list(db["usuarios"].find({"rol": "user"}))
         opciones = [f"{u['nombre']} | Casa: {u.get('casa')}" for u in usuarios]
@@ -210,73 +193,92 @@ def vista_admin():
             st.divider()
             
             anio_sel = st.number_input("Año de Gestión:", min_value=2020, max_value=2030, value=datetime.now().year)
-            st.info("Generar deuda o Cobrar:")
 
-            st.subheader(f"Calendario {anio_sel}")
-            meses = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
+            # --- WIDGET NEGRO PARA EL ADMIN (MODO LECTURA) ---
+            html_calendario = f"""<div style="background-color: #1E1E1E; padding: 20px; border-radius: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); max-width: 350px; margin: 10px auto; border: 1px solid #333;">
+<h3 style="text-align: center; color: #FFFFFF; margin-top: 0; margin-bottom: 20px; font-family: sans-serif;">Resumen {anio_sel}</h3>
+<div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; text-align: center;">"""
             
-            # En modo admin usamos columnas de Streamlit para que los botones sean funcionales.
-            # En celular se volverán una lista apilada, lo cual es mejor para que los botones sean grandes y fáciles de presionar.
-            cols = st.columns(3)
+            meses = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
+            pagos_del_anio = {} # Guardamos los pagos para usarlos en los botones de abajo
+            
             for i, mes in enumerate(meses):
                 mes_num = i + 1
                 patron = f"^{anio_sel}-{mes_num:02d}"
                 pago = db["pagos"].find_one({
-                    "usuario_id": usuario_actual["_id"],
-                    "tipo": "Mantenimiento",
-                    "fecha": {"$regex": patron}
+                    "usuario_id": usuario_actual["_id"], "tipo": "Mantenimiento", "fecha": {"$regex": patron}
                 })
+                pagos_del_anio[mes] = pago 
 
-                with cols[i % 3]:
-                    with st.container(border=True):
-                        st.markdown(f"<div style='text-align: center; font-size: 14px;'><b>{mes}</b></div>", unsafe_allow_html=True)
-                        if pago:
-                            if pago['estado'] == 'Pagado':
-                                st.button("✅ OK", key=f"btn_ok_{i}", disabled=True, use_container_width=True)
-                            else:
-                                if st.button("🔴 Cobrar", key=f"btn_pay_{i}", use_container_width=True):
-                                    db["pagos"].update_one({"_id": pago["_id"]}, {"$set": {"estado": "Pagado", "fecha_pago": datetime.now().strftime("%Y-%m-%d")}})
-                                    st.rerun()
-                        else:
-                            if st.button("⚪ Generar", key=f"btn_new_{i}", use_container_width=True):
-                                fecha_construida = f"{anio_sel}-{mes_num:02d}-01"
-                                db["pagos"].insert_one({
-                                    "usuario_id": usuario_actual["_id"], "casa": usuario_actual.get("casa"), "nombre_usuario": usuario_actual.get("nombre"),
-                                    "tipo": "Mantenimiento", "concepto": f"Mantenimiento {mes} {anio_sel}", "monto": "500", 
-                                    "estado": "Pendiente", "fecha": fecha_construida
-                                })
-                                st.rerun()
+                estado = "⚪"
+                if pago: estado = "🟢" if pago['estado'] == 'Pagado' else "🔴"
+
+                html_calendario += f"""
+<div>
+<div style="color: #A0A0A0; font-size: 15px; font-weight: bold; margin-bottom: 5px;">{mes}</div>
+<div style="font-size: 24px;">{estado}</div>
+</div>"""
+
+            html_calendario += """
+</div></div>"""
+            
+            st.markdown(html_calendario, unsafe_allow_html=True)
+            st.divider()
+
+            # --- PANEL DE ACCIONES RÁPIDAS (MODO ESCRITURA MÓVIL) ---
+            st.markdown("### ⚙️ Gestionar Mes")
+            st.caption("Selecciona el mes en la lista para registrar un pago o generar la deuda.")
+            
+            mes_accion = st.selectbox("Mes a gestionar:", meses)
+            pago_actual = pagos_del_anio[mes_accion]
+            mes_idx = meses.index(mes_accion) + 1
+
+            if pago_actual:
+                if pago_actual['estado'] == 'Pagado':
+                    st.success(f"✅ El mes de **{mes_accion}** ya está pagado.")
+                else:
+                    st.warning(f"🔴 El mes de **{mes_accion}** tiene deuda pendiente.")
+                    if st.button(f"Cobrar {mes_accion}", use_container_width=True, type="primary"):
+                        db["pagos"].update_one({"_id": pago_actual["_id"]}, {"$set": {"estado": "Pagado", "fecha_pago": datetime.now().strftime("%Y-%m-%d")}})
+                        st.toast(f"Pago de {mes_accion} registrado!")
+                        st.rerun()
+            else:
+                st.info(f"⚪ No hay cargo generado para **{mes_accion}**.")
+                if st.button(f"Generar Cargo de {mes_accion}", use_container_width=True):
+                    fecha_construida = f"{anio_sel}-{mes_idx:02d}-01"
+                    db["pagos"].insert_one({
+                        "usuario_id": usuario_actual["_id"], "casa": usuario_actual.get("casa"), "nombre_usuario": usuario_actual.get("nombre"),
+                        "tipo": "Mantenimiento", "concepto": f"Mantenimiento {mes_accion} {anio_sel}", "monto": "500", 
+                        "estado": "Pendiente", "fecha": fecha_construida
+                    })
+                    st.toast(f"Cargo de {mes_accion} generado.")
+                    st.rerun()
 
             st.divider()
             
             st.subheader("Cargos Extra y Multas")
-            with st.expander("Agregar Multa o Extra"):
+            with st.expander("➕ Agregar Multa o Extra"):
                 with st.form("form_extra"):
                     c_concepto = st.text_input("Concepto (ej. Multa Ruido)")
                     c_monto = st.text_input("Monto ($)", value="200")
                     c_tipo = st.selectbox("Tipo", ["Multa", "Extra"])
                     c_fecha = st.date_input("Fecha de Cargo", value=datetime.now())
-                    
                     if st.form_submit_button("Registrar"):
                         db["pagos"].insert_one({
                             "usuario_id": usuario_actual["_id"], "casa": usuario_actual.get("casa"), 
-                            "tipo": c_tipo, "concepto": c_concepto, "monto": c_monto,
-                            "estado": "Pendiente", "fecha": c_fecha.strftime("%Y-%m-%d")
+                            "tipo": c_tipo, "concepto": c_concepto, "monto": c_monto, "estado": "Pendiente", "fecha": c_fecha.strftime("%Y-%m-%d")
                         })
                         st.success("Registrado")
                         st.rerun()
             
-            extras = list(db["pagos"].find({
-                "usuario_id": usuario_actual["_id"], 
-                "tipo": {"$ne": "Mantenimiento"} 
-            }))
+            extras = list(db["pagos"].find({"usuario_id": usuario_actual["_id"], "tipo": {"$ne": "Mantenimiento"}}))
             if extras:
                 for ex in extras:
                     with st.container(border=True):
                         st.write(f"**{ex['tipo']}**: {ex['concepto']} (${ex['monto']})")
                         st.caption(f"Fecha: {ex['fecha']} | Estado: {ex['estado']}")
                         if ex['estado'] == 'Pendiente':
-                            if st.button("Cobrar", key=f"pay_ex_{ex['_id']}", use_container_width=True):
+                            if st.button("Cobrar Cargo", key=f"pay_ex_{ex['_id']}", use_container_width=True):
                                 db["pagos"].update_one({"_id": ex["_id"]}, {"$set": {"estado": "Pagado"}})
                                 st.rerun()
 
@@ -303,4 +305,3 @@ if st.session_state['usuario']:
         vista_residente()
 else:
     mostrar_login()
-
