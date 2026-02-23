@@ -6,11 +6,29 @@ import pandas as pd
 # --- CONFIGURACIÓN DE LA PÁGINA ---
 st.set_page_config(page_title="Grapevine Web", layout="wide", page_icon="🍇")
 
+# --- CSS MÁGICO PARA CELULARES ---
+# Esto evita que Streamlit convierta las columnas en una lista vertical
+st.markdown("""
+    <style>
+    @media (max-width: 768px) {
+        div[data-testid="stHorizontalBlock"] {
+            flex-direction: row !important;
+            flex-wrap: nowrap !important;
+        }
+        div[data-testid="column"] {
+            min-width: 0 !important;
+            padding: 0 3px !important;
+        }
+    }
+    </style>
+""", unsafe_allow_html=True)
+
 # --- CONEXIÓN A BASE DE DATOS ---
 @st.cache_resource
 def init_connection():
-    # OJO: Asegúrate de pegar AQUÍ tu link real de MongoDB Atlas
-    return pymongo.MongoClient("mongodb+srv://uriel_db:Macuca12.@cluster0.opwh0ou.mongodb.net/?appName=Cluster0")
+    # Pega tu link de Atlas aquí:
+   return pymongo.MongoClient("mongodb+srv://uriel_db:Macuca12.@cluster0.opwh0ou.mongodb.net/?appName=Cluster0")
+
 try:
     client = init_connection()
     db = client["condominio_db"]
@@ -72,47 +90,40 @@ def vista_residente():
     with tab1:
         st.header("Estado de Cuenta")
         
-        # --- CALENDARIO VISUAL COMPACTO (TIPO XIAOMI) ---
+        # --- CALENDARIO VISUAL ---
         st.subheader("Resumen Anual")
-        
         anio_sel = st.number_input("Año:", min_value=2020, max_value=2030, value=datetime.now().year)
         st.info("🟢 Pagado | 🔴 Pendiente | ⚪ Sin cargo")
 
         meses = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
         
-        # MINI CALENDARIO FORZADO EN HTML (No se rompe en celulares)
-        html_grid = '<div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; text-align: center; margin-bottom: 20px;">'
-        
-        for i, mes in enumerate(meses):
-            mes_num = i + 1
-            patron = f"^{anio_sel}-{mes_num:02d}"
-            
-            pago = db["pagos"].find_one({
-                "casa": u['casa'], 
-                "tipo": "Mantenimiento", 
-                "fecha": {"$regex": patron}
-            })
-            
-            estado = "⚪"
-            if pago:
-                estado = "🟢" if pago['estado'] == 'Pagado' else "🔴"
-            
-            # Tarjetas de cada mes
-            html_grid += f"""
-            <div style="border: 1px solid rgba(128,128,128,0.3); border-radius: 8px; padding: 12px 5px; background-color: rgba(128,128,128,0.05);">
-                <div style="font-size: 15px; font-weight: bold; margin-bottom: 5px;">{mes}</div>
-                <div style="font-size: 20px;">{estado}</div>
-            </div>
-            """
-            
-        html_grid += '</div>'
-        st.markdown(html_grid, unsafe_allow_html=True) # Renderiza el grid
+        # Generamos 4 filas con 3 columnas cada una (Cuadrícula 3x4)
+        for fila in range(4):
+            cols = st.columns(3)
+            for col in range(3):
+                idx = fila * 3 + col
+                mes = meses[idx]
+                mes_num = idx + 1
+                patron = f"^{anio_sel}-{mes_num:02d}"
+                
+                pago = db["pagos"].find_one({
+                    "casa": u['casa'], 
+                    "tipo": "Mantenimiento", 
+                    "fecha": {"$regex": patron}
+                })
+                
+                estado = "⚪"
+                if pago:
+                    estado = "🟢" if pago['estado'] == 'Pagado' else "🔴"
+                
+                with cols[col]:
+                    with st.container(border=True):
+                        st.markdown(f"<div style='text-align: center; font-size: 14px;'><b>{mes}</b><br><span style='font-size: 20px;'>{estado}</span></div>", unsafe_allow_html=True)
 
         st.divider()
         
-        # --- HISTORIAL (VERSIÓN TABLA COMPACTA) ---
+        # --- HISTORIAL TABLAS COMPACTAS ---
         st.subheader(f"Historial Detallado ({anio_sel})")
-        
         pagos = list(db["pagos"].find({"casa": u['casa']}).sort("fecha", -1))
         
         if pagos:
@@ -207,14 +218,14 @@ def vista_admin():
             st.divider()
             
             anio_sel = st.number_input("Año de Gestión:", min_value=2020, max_value=2030, value=datetime.now().year)
-            st.info("Clic en **Gris** para crear deuda. Clic en **Rojo** para cobrar.")
+            st.info("Gris: Crear deuda | Rojo: Cobrar")
 
             st.subheader(f"Calendario {anio_sel}")
             meses = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
             
-            # CORRECCIÓN ADMIN: Dibuja fila por fila para que en celular el orden sea Ene, Feb, Mar...
-            for fila in range(4): # 4 filas
-                cols = st.columns(3) # 3 columnas
+            # Cuadrícula 3x4 asegurada por el CSS
+            for fila in range(4):
+                cols = st.columns(3)
                 for col in range(3):
                     idx = fila * 3 + col
                     mes = meses[idx]
@@ -228,14 +239,13 @@ def vista_admin():
 
                     with cols[col]:
                         with st.container(border=True):
-                            st.markdown(f"**{mes}**")
+                            st.markdown(f"<div style='text-align: center; font-size: 14px;'><b>{mes}</b></div>", unsafe_allow_html=True)
                             if pago:
                                 if pago['estado'] == 'Pagado':
                                     st.button("✅ OK", key=f"btn_ok_{idx}", disabled=True, use_container_width=True)
                                 else:
                                     if st.button("🔴 Cobrar", key=f"btn_pay_{idx}", use_container_width=True):
                                         db["pagos"].update_one({"_id": pago["_id"]}, {"$set": {"estado": "Pagado", "fecha_pago": datetime.now().strftime("%Y-%m-%d")}})
-                                        st.toast(f"Pago de {mes} registrado!")
                                         st.rerun()
                             else:
                                 if st.button("⚪ Generar", key=f"btn_new_{idx}", use_container_width=True):
@@ -245,7 +255,6 @@ def vista_admin():
                                         "tipo": "Mantenimiento", "concepto": f"Mantenimiento {mes} {anio_sel}", "monto": "500", 
                                         "estado": "Pendiente", "fecha": fecha_construida
                                     })
-                                    st.toast(f"Cargo de {mes} generado.")
                                     st.rerun()
 
             st.divider()
@@ -304,4 +313,3 @@ if st.session_state['usuario']:
         vista_residente()
 else:
     mostrar_login()
-
