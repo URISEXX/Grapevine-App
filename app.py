@@ -76,13 +76,10 @@ def vista_residente():
         anio_sel = st.number_input("Selecciona el Año:", min_value=2020, max_value=2030, value=datetime.now().year)
         
         # --- WIDGET DE CALENDARIO COMPACTO (TIPO APP) ---
-        # Este código crea el recuadro negro con los meses en cuadrícula perfecta para celular
-        
-        html_calendario = f"""
-        <div style="background-color: #1E1E1E; padding: 20px; border-radius: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); max-width: 350px; margin: 10px auto; border: 1px solid #333;">
-            <h3 style="text-align: center; color: #FFFFFF; margin-top: 0; margin-bottom: 20px; font-family: sans-serif;">Resumen {anio_sel}</h3>
-            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; text-align: center;">
-        """
+        # Le quitamos la sangría a la izquierda para que Streamlit no lo confunda con código
+        html_calendario = f"""<div style="background-color: #1E1E1E; padding: 20px; border-radius: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); max-width: 350px; margin: 10px auto; border: 1px solid #333;">
+<h3 style="text-align: center; color: #FFFFFF; margin-top: 0; margin-bottom: 20px; font-family: sans-serif;">Resumen {anio_sel}</h3>
+<div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; text-align: center;">"""
         
         meses = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
         
@@ -96,28 +93,25 @@ def vista_residente():
                 "fecha": {"$regex": patron}
             })
             
-            # Colores de los círculos
             estado = "⚪" # Gris / Sin cargo
             if pago:
                 estado = "🟢" if pago['estado'] == 'Pagado' else "🔴"
             
-            # Agregamos cada mes al recuadro
+            # Sin espacios a la izquierda
             html_calendario += f"""
-                <div>
-                    <div style="color: #A0A0A0; font-size: 15px; font-weight: bold; margin-bottom: 5px;">{mes}</div>
-                    <div style="font-size: 24px;">{estado}</div>
-                </div>
-            """
+<div>
+<div style="color: #A0A0A0; font-size: 15px; font-weight: bold; margin-bottom: 5px;">{mes}</div>
+<div style="font-size: 24px;">{estado}</div>
+</div>"""
             
         html_calendario += """
-            </div>
-            <div style="text-align: center; margin-top: 20px; font-size: 12px; color: #888;">
-                🟢 Pagado &nbsp;|&nbsp; 🔴 Pendiente &nbsp;|&nbsp; ⚪ Sin cargo
-            </div>
-        </div>
-        """
+</div>
+<div style="text-align: center; margin-top: 20px; font-size: 12px; color: #888;">
+🟢 Pagado &nbsp;|&nbsp; 🔴 Pendiente &nbsp;|&nbsp; ⚪ Sin cargo
+</div>
+</div>"""
         
-        # Mostramos el recuadro en la página
+        # Mostramos el recuadro
         st.markdown(html_calendario, unsafe_allow_html=True)
         st.divider()
         
@@ -177,7 +171,6 @@ def vista_residente():
             df_rep = pd.DataFrame(reportes)
             df_rep = df_rep.rename(columns={"fecha": "Fecha", "descripcion": "Descripción", "estado": "Estado"})
             st.table(df_rep[["Fecha", "Descripción", "Estado"]].set_index("Fecha"))
-
 def vista_admin():
     st.sidebar.title("Panel Admin 🛡️")
     menu = st.sidebar.radio("Ir a:", ["Usuarios", "Pagos y Finanzas", "Reportes"])
@@ -310,3 +303,4 @@ if st.session_state['usuario']:
         vista_residente()
 else:
     mostrar_login()
+
