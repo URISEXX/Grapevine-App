@@ -10,7 +10,7 @@ st.set_page_config(page_title="Grapevine Web", layout="wide", page_icon="🍇")
 @st.cache_resource
 def init_connection():
     # OJO: Asegúrate de pegar AQUÍ tu link real de MongoDB Atlas
-    return pymongo.MongoClient("mongodb+srv://uriel_db:Macuca12.@cluster0.opwh0ou.mongodb.net/?appName=Cluster0")
+    return pymongo.MongoClient("mongodb+srv://usuario:password@cluster...")
 
 try:
     client = init_connection()
@@ -47,7 +47,6 @@ def logout():
 # ======================================================
 
 def mostrar_login():
-    # Diseño limpio que ocupa el 100% del ancho (Ideal para celulares)
     st.title("🍇 Acceso Grapevine")
     st.markdown("Sistema de Seguridad Digital para Fraccionamientos")
     
@@ -74,14 +73,16 @@ def vista_residente():
     with tab1:
         st.header("Estado de Cuenta")
         
-        # --- CALENDARIO VISUAL ---
+        # --- CALENDARIO VISUAL COMPACTO (TIPO XIAOMI) ---
         st.subheader("Resumen Anual")
         
         anio_sel = st.number_input("Año:", min_value=2020, max_value=2030, value=datetime.now().year)
         st.info("🟢 Pagado | 🔴 Pendiente | ⚪ Sin cargo")
 
         meses = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
-        cols = st.columns(3) 
+        
+        # MINI CALENDARIO FORZADO EN HTML (No se rompe en celulares)
+        html_grid = '<div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; text-align: center; margin-bottom: 20px;">'
         
         for i, mes in enumerate(meses):
             mes_num = i + 1
@@ -97,10 +98,16 @@ def vista_residente():
             if pago:
                 estado = "🟢" if pago['estado'] == 'Pagado' else "🔴"
             
-            with cols[i % 3]:
-                with st.container(border=True):
-                    st.markdown(f"**{mes}**")
-                    st.markdown(f"### {estado}")
+            # Tarjetas de cada mes
+            html_grid += f"""
+            <div style="border: 1px solid rgba(128,128,128,0.3); border-radius: 8px; padding: 12px 5px; background-color: rgba(128,128,128,0.05);">
+                <div style="font-size: 15px; font-weight: bold; margin-bottom: 5px;">{mes}</div>
+                <div style="font-size: 20px;">{estado}</div>
+            </div>
+            """
+            
+        html_grid += '</div>'
+        st.markdown(html_grid, unsafe_allow_html=True) # Renderiza el grid
 
         st.divider()
         
@@ -114,7 +121,6 @@ def vista_residente():
             if 'tipo' not in df_pagos.columns: 
                 df_pagos['tipo'] = 'Mantenimiento'
 
-            # Renombramos columnas para que se vean formales en la tabla
             df_pagos = df_pagos.rename(columns={"fecha": "Fecha", "concepto": "Concepto", "monto": "$", "estado": "Estado"})
 
             df_mto = df_pagos[df_pagos['tipo'] == 'Mantenimiento']
@@ -123,7 +129,6 @@ def vista_residente():
 
             with st.expander("📅 Cuotas de Mantenimiento", expanded=True):
                 if not df_mto.empty:
-                    # Usamos st.table y ponemos la Fecha como índice para ahorrar muchísimo espacio
                     st.table(df_mto[["Fecha", "Concepto", "$", "Estado"]].set_index("Fecha"))
                 else:
                     st.caption("No hay registros de mantenimiento.")
@@ -162,7 +167,6 @@ def vista_residente():
         if reportes:
             df_rep = pd.DataFrame(reportes)
             df_rep = df_rep.rename(columns={"fecha": "Fecha", "descripcion": "Descripción", "estado": "Estado"})
-            # También hacemos compacta la tabla de reportes
             st.table(df_rep[["Fecha", "Descripción", "Estado"]].set_index("Fecha"))
 
 def vista_admin():
@@ -203,50 +207,50 @@ def vista_admin():
             usuario_actual = db["usuarios"].find_one({"nombre": nombre_user})
             st.divider()
             
-            # Selector de Año
             anio_sel = st.number_input("Año de Gestión:", min_value=2020, max_value=2030, value=datetime.now().year)
             st.info("Clic en **Gris** para crear deuda. Clic en **Rojo** para cobrar.")
 
-            # Tablero Mensual (Adaptado a 3 columnas para celular)
             st.subheader(f"Calendario {anio_sel}")
             meses = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
-            cols = st.columns(3)
+            
+            # CORRECCIÓN ADMIN: Dibuja fila por fila para que en celular el orden sea Ene, Feb, Mar...
+            for fila in range(4): # 4 filas
+                cols = st.columns(3) # 3 columnas
+                for col in range(3):
+                    idx = fila * 3 + col
+                    mes = meses[idx]
+                    mes_num = idx + 1
+                    patron = f"^{anio_sel}-{mes_num:02d}"
+                    pago = db["pagos"].find_one({
+                        "usuario_id": usuario_actual["_id"],
+                        "tipo": "Mantenimiento",
+                        "fecha": {"$regex": patron}
+                    })
 
-            for i, mes in enumerate(meses):
-                mes_num = i + 1
-                patron = f"^{anio_sel}-{mes_num:02d}"
-                pago = db["pagos"].find_one({
-                    "usuario_id": usuario_actual["_id"],
-                    "tipo": "Mantenimiento",
-                    "fecha": {"$regex": patron}
-                })
-
-                with cols[i % 3]:
-                    # Contenedor para que los botones tengan espacio y borde
-                    with st.container(border=True):
-                        st.markdown(f"**{mes}**")
-                        if pago:
-                            if pago['estado'] == 'Pagado':
-                                st.button("✅ OK", key=f"btn_ok_{i}", disabled=True, use_container_width=True)
+                    with cols[col]:
+                        with st.container(border=True):
+                            st.markdown(f"**{mes}**")
+                            if pago:
+                                if pago['estado'] == 'Pagado':
+                                    st.button("✅ OK", key=f"btn_ok_{idx}", disabled=True, use_container_width=True)
+                                else:
+                                    if st.button("🔴 Cobrar", key=f"btn_pay_{idx}", use_container_width=True):
+                                        db["pagos"].update_one({"_id": pago["_id"]}, {"$set": {"estado": "Pagado", "fecha_pago": datetime.now().strftime("%Y-%m-%d")}})
+                                        st.toast(f"Pago de {mes} registrado!")
+                                        st.rerun()
                             else:
-                                if st.button("🔴 Cobrar", key=f"btn_pay_{i}", use_container_width=True):
-                                    db["pagos"].update_one({"_id": pago["_id"]}, {"$set": {"estado": "Pagado", "fecha_pago": datetime.now().strftime("%Y-%m-%d")}})
-                                    st.toast(f"Pago de {mes} registrado!")
+                                if st.button("⚪ Generar", key=f"btn_new_{idx}", use_container_width=True):
+                                    fecha_construida = f"{anio_sel}-{mes_num:02d}-01"
+                                    db["pagos"].insert_one({
+                                        "usuario_id": usuario_actual["_id"], "casa": usuario_actual.get("casa"), "nombre_usuario": usuario_actual.get("nombre"),
+                                        "tipo": "Mantenimiento", "concepto": f"Mantenimiento {mes} {anio_sel}", "monto": "500", 
+                                        "estado": "Pendiente", "fecha": fecha_construida
+                                    })
+                                    st.toast(f"Cargo de {mes} generado.")
                                     st.rerun()
-                        else:
-                            if st.button("⚪ Generar", key=f"btn_new_{i}", use_container_width=True):
-                                fecha_construida = f"{anio_sel}-{mes_num:02d}-01"
-                                db["pagos"].insert_one({
-                                    "usuario_id": usuario_actual["_id"], "casa": usuario_actual.get("casa"), "nombre_usuario": usuario_actual.get("nombre"),
-                                    "tipo": "Mantenimiento", "concepto": f"Mantenimiento {mes} {anio_sel}", "monto": "500", 
-                                    "estado": "Pendiente", "fecha": fecha_construida
-                                })
-                                st.toast(f"Cargo de {mes} generado.")
-                                st.rerun()
 
             st.divider()
             
-            # Extras y Multas
             st.subheader("Cargos Extra y Multas")
             with st.expander("Agregar Multa o Extra"):
                 with st.form("form_extra"):
@@ -270,7 +274,6 @@ def vista_admin():
             }))
             if extras:
                 for ex in extras:
-                    # En celular es mejor usar contenedores para los extras en lugar de columnas anchas
                     with st.container(border=True):
                         st.write(f"**{ex['tipo']}**: {ex['concepto']} (${ex['monto']})")
                         st.caption(f"Fecha: {ex['fecha']} | Estado: {ex['estado']}")
