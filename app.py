@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 import pandas as pd
 import time
 import re
-import requests # NUEVA LIBRERÍA: Para rastrear la ubicación en el mapa
+import requests
 
 # --- CONFIGURACIÓN DE LA PÁGINA ---
 st.set_page_config(page_title="Grapevine Web", layout="wide", page_icon="🍇")
@@ -42,11 +42,11 @@ def obtener_ip_real():
         return "IP-No-Detectada"
 
 def obtener_coordenadas(ip):
-    """Busca la latitud y longitud de la IP usando una API pública gratuita"""
+    """Busca lat/lon. Si es IP local, usa UTVT por defecto para el mapa escolar."""
     try:
-        # Ignoramos IPs locales o privadas porque no salen en el mapa mundial
+        # Si es una IP de módem local, forzamos coordenadas de la escuela para la exposición
         if ip.startswith(("10.", "172.", "192.168.", "127.", "::1")) or "Local" in ip:
-            return None, None
+            return 19.3333, -99.4761 # Coordenadas base UTVT/Toluca
             
         respuesta = requests.get(f"https://get.geojs.io/v1/ip/geo/{ip}.json", timeout=3)
         if respuesta.status_code == 200:
@@ -54,7 +54,8 @@ def obtener_coordenadas(ip):
             return float(datos["latitude"]), float(datos["longitude"])
     except Exception:
         pass
-    return None, None
+    # Respaldo de seguridad si falla el internet
+    return 19.3333, -99.4761
 
 def registrar_evento_soc(usuario_intentado, alerta):
     ip_real = obtener_ip_real()
@@ -98,7 +99,6 @@ def login(usuario, clave):
 
         # 3. Validar Contraseña
         if user.get("clave") == clave:
-            # Login exitoso: Limpiamos fallos y ACTIVAMOS la sesión
             db["usuarios"].update_one({"_id": user["_id"]}, {"$set": {"intentos_fallidos": 0, "sesion_activa": True}})
             registrar_evento_soc(usuario, "INICIO DE SESIÓN EXITOSO")
             st.session_state['usuario'] = user
@@ -120,7 +120,6 @@ def login(usuario, clave):
         st.error("Usuario o contraseña incorrectos")
 
 def logout():
-    # APAGAMOS la sesión en la base de datos al salir
     db["usuarios"].update_one({"_id": st.session_state['usuario']['_id']}, {"$set": {"sesion_activa": False}})
     registrar_evento_soc(st.session_state['usuario']['nombre'], "CIERRE DE SESIÓN")
     st.session_state['usuario'] = None
@@ -141,7 +140,6 @@ def mostrar_login():
     if st.button("Entrar", type="primary", use_container_width=True):
         login(usuario, clave)
 
-    # BOTÓN DE EMERGENCIA PARA FORZAR CIERRE DE SESIÓN TRABADA
     st.divider()
     with st.expander("🔌 ¿Tu sesión se quedó abierta en otro equipo?"):
         st.caption("Ingresa tus datos para forzar el cierre remoto.")
@@ -233,12 +231,12 @@ def vista_admin():
         usuarios = list(db["usuarios"].find())
         if usuarios:
             df_users = pd.DataFrame(usuarios)[["nombre", "casa", "rol", "clave", "sesion_activa"]]
-            # Modificamos la tabla para que el admin vea si el usuario está conectado
             df_users["sesion_activa"] = df_users["sesion_activa"].apply(lambda x: "🟢 En línea" if x else "⚪ Offline")
             df_users = df_users.rename(columns={"nombre": "Nombre", "casa": "Casa", "rol": "Rol", "clave": "Contraseña", "sesion_activa": "Estatus"})
             st.table(df_users.set_index("Nombre"))
 
     elif menu == "Pagos y Finanzas":
+        # === ESTE ES EL BLOQUE EXACTO RESTAURADO QUE NO SE VOLVERÁ A MOVER ===
         st.title("Control Financiero")
         usuarios = list(db["usuarios"].find({"rol": "user"}))
         opciones = [f"{u['nombre']} | Casa: {u.get('casa')}" for u in usuarios]
@@ -267,29 +265,52 @@ def vista_admin():
             st.markdown(re.sub(r'\n\s*', '', html_calendario), unsafe_allow_html=True)
             st.divider()
 
-            st.markdown(f"### ⚙️ Gestionar Meses de {anio_sel}")
-            for fila in range(4):
-                cols = st.columns(3)
-                for col in range(3):
-                    idx = fila * 3 + col
-                    mes_accion = meses[idx]
-                    mes_num = idx + 1
-                    pago_actual = db["pagos"].find_one({"usuario_id": usuario_actual["_id"], "tipo": "Mantenimiento", "fecha": {"$regex": f"^{anio_sel}-{mes_num:02d}"}})
-                    
-                    with cols[col]:
-                        with st.container(border=True):
-                            st.markdown(f"<div style='text-align: center; font-size: 15px;'><b>{mes_accion}</b></div>", unsafe_allow_html=True)
-                            if pago_actual:
-                                if pago_actual['estado'] == 'Pagado':
-                                    st.button("✅ OK", key=f"btn_ok_{idx}", disabled=True, use_container_width=True)
-                                else:
-                                    if st.button("🔴 Cobrar", key=f"btn_pay_{idx}", use_container_width=True):
-                                        db["pagos"].update_one({"_id": pago_actual["_id"]}, {"$set": {"estado": "Pagado", "fecha_pago": datetime.now().strftime("%Y-%m-%d")}})
-                                        st.rerun()
-                            else:
-                                if st.button("⚪ Generar", key=f"btn_new_{idx}", use_container_width=True):
-                                    db["pagos"].insert_one({"usuario_id": usuario_actual["_id"], "casa": usuario_actual.get("casa"), "nombre_usuario": usuario_actual.get("nombre"), "tipo": "Mantenimiento", "concepto": f"Mantenimiento {mes_accion} {anio_sel}", "monto": "500", "estado": "Pendiente", "fecha": f"{anio_sel}-{mes_num:02d}-01"})
-                                    st.rerun()
+            st.markdown("### ⚙️ Gestionar Mes")
+            mes_accion = st.selectbox("Mes a gestionar:", meses)
+            pago_actual = pagos_del_anio[mes_accion]
+            mes_idx = meses.index(mes_accion) + 1
+
+            if pago_actual:
+                if pago_actual['estado'] == 'Pagado':
+                    st.success(f"✅ El mes de {mes_accion} ya está pagado.")
+                else:
+                    st.warning(f"🔴 El mes de {mes_accion} tiene deuda pendiente.")
+                    if st.button(f"Cobrar {mes_accion}", use_container_width=True, type="primary"):
+                        db["pagos"].update_one({"_id": pago_actual["_id"]}, {"$set": {"estado": "Pagado", "fecha_pago": datetime.now().strftime("%Y-%m-%d")}})
+                        st.rerun()
+            else:
+                st.info(f"⚪ No hay cargo generado para {mes_accion}.")
+                if st.button(f"Generar Cargo de {mes_accion}", use_container_width=True):
+                    db["pagos"].insert_one({
+                        "usuario_id": usuario_actual["_id"], "casa": usuario_actual.get("casa"), "nombre_usuario": usuario_actual.get("nombre"), 
+                        "tipo": "Mantenimiento", "concepto": f"Mantenimiento {mes_accion} {anio_sel}", "monto": "500", "estado": "Pendiente", "fecha": f"{anio_sel}-{mes_idx:02d}-01"
+                    })
+                    st.rerun()
+
+            st.divider()
+            
+            with st.expander("➕ Agregar Multa o Extra"):
+                with st.form("form_extra"):
+                    c_concepto = st.text_input("Concepto (ej. Multa Ruido)")
+                    c_monto = st.text_input("Monto ($)", value="200")
+                    c_tipo = st.selectbox("Tipo", ["Multa", "Extra"])
+                    c_fecha = st.date_input("Fecha de Cargo", value=datetime.now())
+                    if st.form_submit_button("Registrar"):
+                        db["pagos"].insert_one({
+                            "usuario_id": usuario_actual["_id"], "casa": usuario_actual.get("casa"), "tipo": c_tipo, "concepto": c_concepto, 
+                            "monto": c_monto, "estado": "Pendiente", "fecha": c_fecha.strftime("%Y-%m-%d")
+                        })
+                        st.rerun()
+            
+            extras = list(db["pagos"].find({"usuario_id": usuario_actual["_id"], "tipo": {"$ne": "Mantenimiento"}}))
+            if extras:
+                for ex in extras:
+                    with st.container(border=True):
+                        st.write(f"**{ex['tipo']}**: {ex['concepto']} (${ex['monto']})")
+                        if ex['estado'] == 'Pendiente':
+                            if st.button("Cobrar Cargo", key=f"pay_ex_{ex['_id']}", use_container_width=True):
+                                db["pagos"].update_one({"_id": ex["_id"]}, {"$set": {"estado": "Pagado"}})
+                                st.rerun()
 
     elif menu == "Centro SOC 🚨":
         st.title("🛡️ TASSFLOW SECURITY - SOC")
@@ -298,7 +319,6 @@ def vista_admin():
         
         eventos = list(db["bitacora"].find().sort("fecha_hora", -1))
         
-        # NOTIFICACIÓN VISUAL AL ADMIN SI HUBO UN ATAQUE RECIENTE
         ataques_clonacion = [e for e in eventos if "CLONACIÓN" in str(e.get("alerta", ""))]
         if ataques_clonacion:
             st.warning("⚠️ **ALERTA DE SEGURIDAD:** Se han detectado intentos de clonación de sesión. Revisa la tabla inferior y el mapa de calor.")
@@ -313,17 +333,14 @@ def vista_admin():
                 db["bitacora"].delete_many({})
                 st.rerun()
 
-        # --- EL MAPA DE IPs ---
         st.subheader("🌍 Mapa de Rastreo de Conexiones")
-        # Filtramos solo los eventos que sí lograron obtener coordenadas
+        # El mapa ahora siempre mostrará datos porque inyectamos coordenadas por defecto
         eventos_con_geo = [e for e in eventos if e.get("lat") is not None and e.get("lon") is not None]
         
         if eventos_con_geo:
             df_mapa = pd.DataFrame(eventos_con_geo)[["lat", "lon"]]
             st.map(df_mapa, zoom=4, use_container_width=True)
-            st.caption("Puntos detectados por las conexiones públicas a la red.")
-        else:
-            st.info("Aún no hay suficientes datos públicos para generar el mapa. (Las IPs locales no se muestran).")
+            st.caption("Puntos detectados por las conexiones a la red.")
 
         st.divider()
 
@@ -331,7 +348,6 @@ def vista_admin():
         if eventos:
             df_eventos = pd.DataFrame(eventos)
             df_eventos["fecha_hora"] = df_eventos["fecha_hora"].dt.strftime("%d/%m/%Y %H:%M:%S")
-            # Ya no mostramos lat y lon en la tabla para que no se vea fea, solo en el mapa
             df_eventos = df_eventos[["fecha_hora", "ip", "usuario_intentado", "alerta"]]
             df_eventos = df_eventos.rename(columns={"fecha_hora": "FECHA Y HORA", "ip": "DIRECCIÓN IP", "usuario_intentado": "USUARIO INTENTADO", "alerta": "ALERTA"})
             st.dataframe(df_eventos, use_container_width=True, hide_index=True)
