@@ -30,19 +30,26 @@ if 'rol' not in st.session_state:
 # LÓGICA DE SEGURIDAD (SOC)
 # ======================================================
 def obtener_ip_real():
-    """Atrapa la IP real del usuario leyendo las cabeceras de red"""
+    """Atrapa la IP real del usuario leyendo múltiples cabeceras de red en la nube"""
     try:
-        # st.context contiene los datos de la conexión actual
         headers = st.context.headers
         
-        # En la nube, los servidores guardan la IP del cliente aquí:
-        if "X-Forwarded-For" in headers:
-            # A veces vienen varias IPs, tomamos la primera (la original)
-            ip_real = headers["X-Forwarded-For"].split(",")[0].strip()
-            return ip_real
-            
-        # Si no lo encuentra, asume que estás en tu computadora (Local)
-        return "127.0.0.1"
+        # Lista de cabeceras donde los servidores web y firewalls guardan la IP real
+        posibles_cabeceras = [
+            "X-Forwarded-For", 
+            "X-Real-Ip", 
+            "Client-Ip", 
+            "CF-Connecting-IP"
+        ]
+        
+        for cabecera in posibles_cabeceras:
+            if cabecera in headers:
+                # Si hay varias IPs separadas por coma, la primera es la del usuario real
+                ip_real = headers[cabecera].split(",")[0].strip()
+                if ip_real:
+                    return ip_real
+                    
+        return "127.0.0.1 (Local)"
     except Exception:
         return "IP-No-Detectada"
 
