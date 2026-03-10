@@ -2,7 +2,7 @@ import streamlit as st
 import pymongo
 from datetime import datetime, timedelta
 import pandas as pd
-import time # NUEVA LIBRERÍA PARA EL RELOJ EN VIVO
+import time
 
 # --- CONFIGURACIÓN DE LA PÁGINA ---
 st.set_page_config(page_title="Grapevine Web", layout="wide", page_icon="🍇")
@@ -11,7 +11,7 @@ st.set_page_config(page_title="Grapevine Web", layout="wide", page_icon="🍇")
 @st.cache_resource
 def init_connection():
     # Pega tu link de MongoDB Atlas aquí:
-    return pymongo.MongoClient("mongodb+srv://uriel_db:Macuca12.@cluster0.opwh0ou.mongodb.net/?appName=Cluster0"    )
+    return pymongo.MongoClient("mongodb+srv://uriel_db:Macuca12.@cluster0.opwh0ou.mongodb.net/?appName=Cluster0")
 
 try:
     client = init_connection()
@@ -30,25 +30,17 @@ if 'rol' not in st.session_state:
 # LÓGICA DE SEGURIDAD (SOC)
 # ======================================================
 def obtener_ip_real():
-    """Atrapa la IP real del usuario leyendo múltiples cabeceras de red en la nube"""
+    """Atrapa la IP pública real filtrando los routers internos de Streamlit Cloud"""
     try:
         headers = st.context.headers
-        
-        # Lista de cabeceras donde los servidores web y firewalls guardan la IP real
-        posibles_cabeceras = [
-            "X-Forwarded-For", 
-            "X-Real-Ip", 
-            "Client-Ip", 
-            "CF-Connecting-IP"
-        ]
-        
-        for cabecera in posibles_cabeceras:
-            if cabecera in headers:
-                # Si hay varias IPs separadas por coma, la primera es la del usuario real
-                ip_real = headers[cabecera].split(",")[0].strip()
-                if ip_real:
-                    return ip_real
-                    
+        if "X-Forwarded-For" in headers:
+            # A veces vienen varias IPs separadas por coma, sacamos la lista
+            lista_ips = headers["X-Forwarded-For"].split(",")
+            for ip in lista_ips:
+                ip = ip.strip()
+                # Ignoramos las IPs privadas/internas de los routers (192.168.x.x, 10.x.x.x, 172.x.x.x)
+                if not (ip.startswith("192.168.") or ip.startswith("10.") or ip.startswith("172.") or ip.startswith("127.")):
+                    return ip # Retorna la primera IP pública válida que encuentre (IPv4 o IPv6)
         return "127.0.0.1 (Local)"
     except Exception:
         return "IP-No-Detectada"
@@ -56,7 +48,7 @@ def obtener_ip_real():
 def registrar_evento_soc(usuario_intentado, alerta):
     db["bitacora"].insert_one({
         "fecha_hora": datetime.now(),
-        "ip": obtener_ip_real(), # <--- AHORA USA LA IP REAL
+        "ip": obtener_ip_real(),
         "usuario_intentado": usuario_intentado if usuario_intentado else "desconocido",
         "alerta": alerta
     })
@@ -65,54 +57,42 @@ def login(usuario, clave):
     user = db["usuarios"].find_one({"nombre": usuario})
     
     if user:
-        # 1. Revisar si la cuenta está en periodo de bloqueo
         if "bloqueado_hasta" in user and user["bloqueado_hasta"]:
             if datetime.now() < user["bloqueado_hasta"]:
                 faltan = int((user["bloqueado_hasta"] - datetime.now()).total_seconds())
-                
                 if faltan > 0:
-                    # --- CRONÓMETRO EN VIVO ---
-                    espacio_reloj = st.empty() # Crea un contenedor que podemos actualizar
-                    
+                    espacio_reloj = st.empty()
                     while faltan > 0:
                         espacio_reloj.error(f"⛔ Cuenta bloqueada por seguridad. Desbloqueo en: **{faltan} segundos**.")
-                        time.sleep(1) # Pausa el código 1 segundo
+                        time.sleep(1)
                         faltan -= 1
                     
                     espacio_reloj.success("✅ Cuenta desbloqueada. Ya puedes intentar de nuevo.")
                     time.sleep(1.5)
-                    espacio_reloj.empty() # Limpia el mensaje
+                    espacio_reloj.empty()
                     
-                    # Quitamos el castigo en la base de datos y recargamos
                     db["usuarios"].update_one({"_id": user["_id"]}, {"$set": {"bloqueado_hasta": None, "intentos_fallidos": 0}})
                     st.rerun()
                 return
 
-        # 2. Validar contraseña
         if user.get("clave") == clave:
-            # Login Exitoso
             db["usuarios"].update_one({"_id": user["_id"]}, {"$set": {"intentos_fallidos": 0}})
             registrar_evento_soc(usuario, "INICIO DE SESIÓN EXITOSO")
-            
             st.session_state['usuario'] = user
             st.session_state['rol'] = user.get("rol", "user")
             st.rerun()
         else:
-            # Contraseña Incorrecta
             intentos = user.get("intentos_fallidos", 0) + 1
-            
             if intentos >= 3:
-                # Castigo de 10 segundos
                 bloqueo = datetime.now() + timedelta(seconds=10)
                 db["usuarios"].update_one({"_id": user["_id"]}, {"$set": {"intentos_fallidos": intentos, "bloqueado_hasta": bloqueo}})
                 registrar_evento_soc(usuario, "USUARIO BLOQUEADO TEMPORALMENTE")
-                st.error("⛔ Demasiados intentos fallidos. Tu cuenta ha sido bloqueada. Intenta de nuevo para ver el reloj.")
+                st.error("⛔ Demasiados intentos fallidos. Tu cuenta ha sido bloqueada. Presiona 'Entrar' de nuevo para ver el reloj.")
             else:
                 db["usuarios"].update_one({"_id": user["_id"]}, {"$set": {"intentos_fallidos": intentos}})
                 registrar_evento_soc(usuario, "INTENTO DE INICIO DE SESIÓN FALLIDO")
                 st.error(f"Contraseña incorrecta. Intento {intentos}/3")
     else:
-        # El usuario no existe
         registrar_evento_soc(usuario, "INTENTO DE USUARIO INEXISTENTE")
         st.error("Usuario o contraseña incorrectos")
 
@@ -154,9 +134,9 @@ def vista_residente():
         st.header("Estado de Cuenta")
         anio_sel = st.number_input("Selecciona el Año:", min_value=2020, max_value=2030, value=datetime.now().year)
         
-        html_calendario = f"""<div style="background-color: #1E1E1E; padding: 20px; border-radius: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); max-width: 350px; margin: 10px auto; border: 1px solid #333;">
-<h3 style="text-align: center; color: #FFFFFF; margin-top: 0; margin-bottom: 20px; font-family: sans-serif;">Resumen {anio_sel}</h3>
-<div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; text-align: center;">"""
+        # HTML Comprimido en una línea para evitar errores de renderizado en Streamlit
+        html_calendario = f"<div style='background-color: #1E1E1E; padding: 20px; border-radius: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); max-width: 350px; margin: 10px auto; border: 1px solid #333;'><h3 style='text-align: center; color: #FFFFFF; margin-top: 0; margin-bottom: 20px; font-family: sans-serif;'>Resumen {anio_sel}</h3><div style='display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; text-align: center;'>"
+        
         meses = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
         for i, mes in enumerate(meses):
             mes_num = i + 1
@@ -164,7 +144,9 @@ def vista_residente():
             pago = db["pagos"].find_one({"casa": u['casa'], "tipo": "Mantenimiento", "fecha": {"$regex": patron}})
             estado = "⚪"
             if pago: estado = "🟢" if pago['estado'] == 'Pagado' else "🔴"
+            # Elementos de la cuadrícula
             html_calendario += f"<div><div style='color: #A0A0A0; font-size: 15px; font-weight: bold; margin-bottom: 5px;'>{mes}</div><div style='font-size: 24px;'>{estado}</div></div>"
+            
         html_calendario += "</div><div style='text-align: center; margin-top: 20px; font-size: 12px; color: #888;'>🟢 Pagado | 🔴 Pendiente | ⚪ Sin cargo</div></div>"
         
         st.markdown(html_calendario, unsafe_allow_html=True)
@@ -192,7 +174,7 @@ def vista_residente():
     with tab2:
         st.header("Línea Directa de Seguridad")
         st.markdown("Si notas alguna actividad sospechosa, problemas de acceso, o necesitas hacer un reporte vecinal, comunícate inmediatamente con el SOC.")
-        numero_admin = "7227722801" 
+        numero_admin = "527220000000" # <--- CAMBIA ESTO POR TU NÚMERO
         mensaje = f"Hola Seguridad, soy {u['nombre']} de la casa {u.get('casa', 'S/N')}. Requiero asistencia para un reporte:"
         link_wa = f"https://wa.me/{numero_admin}?text={mensaje.replace(' ', '%20')}"
         st.info("Al presionar el botón se abrirá tu aplicación de WhatsApp con un mensaje prellenado.")
@@ -238,9 +220,9 @@ def vista_admin():
             st.divider()
             anio_sel = st.number_input("Año de Gestión:", min_value=2020, max_value=2030, value=datetime.now().year)
 
-            html_calendario = f"""<div style="background-color: #1E1E1E; padding: 20px; border-radius: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); max-width: 350px; margin: 10px auto; border: 1px solid #333;">
-<h3 style="text-align: center; color: #FFFFFF; margin-top: 0; margin-bottom: 20px; font-family: sans-serif;">Resumen {anio_sel}</h3>
-<div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; text-align: center;">"""
+            # HTML Comprimido
+            html_calendario = f"<div style='background-color: #1E1E1E; padding: 20px; border-radius: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); max-width: 350px; margin: 10px auto; border: 1px solid #333;'><h3 style='text-align: center; color: #FFFFFF; margin-top: 0; margin-bottom: 20px; font-family: sans-serif;'>Resumen {anio_sel}</h3><div style='display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; text-align: center;'>"
+            
             meses = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
             pagos_del_anio = {}
             for i, mes in enumerate(meses):
@@ -250,6 +232,7 @@ def vista_admin():
                 estado = "⚪"
                 if pago: estado = "🟢" if pago['estado'] == 'Pagado' else "🔴"
                 html_calendario += f"<div><div style='color: #A0A0A0; font-size: 15px; font-weight: bold; margin-bottom: 5px;'>{mes}</div><div style='font-size: 24px;'>{estado}</div></div>"
+                
             html_calendario += "</div></div>"
             st.markdown(html_calendario, unsafe_allow_html=True)
             st.divider()
