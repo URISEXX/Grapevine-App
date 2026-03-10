@@ -3,7 +3,7 @@ import pymongo
 from datetime import datetime, timedelta
 import pandas as pd
 import time
-import re # NUEVA LIBRERÍA: Nos ayudará a limpiar el HTML
+import re
 
 # --- CONFIGURACIÓN DE LA PÁGINA ---
 st.set_page_config(page_title="Grapevine Web", layout="wide", page_icon="🍇")
@@ -31,24 +31,22 @@ if 'rol' not in st.session_state:
 # LÓGICA DE SEGURIDAD (SOC)
 # ======================================================
 def obtener_ip_real():
-    """Atrapa la IP real buscando en cabeceras minúsculas y mayúsculas"""
+    """RADAR PROFUNDO: Escanea absolutamente todas las cabeceras buscando IPs reales"""
     try:
-        # Convertimos todas las cabeceras a minúsculas para evitar errores en la nube
-        headers = {k.lower(): str(v) for k, v in st.context.headers.items()}
-        ip_fallback = "127.0.0.1"
+        headers = st.context.headers
         
-        # Buscamos en las 3 cabeceras más comunes de la nube
-        for cabecera in ["x-forwarded-for", "x-real-ip", "client-ip"]:
-            if cabecera in headers:
-                lista_ips = headers[cabecera].split(",")
-                for ip in lista_ips:
-                    ip = ip.strip()
-                    if ip:
-                        ip_fallback = ip # Guarda la última encontrada por si acaso
-                        # Si NO es privada/local, entonces es la pública que buscamos
-                        if not ip.startswith(("10.", "172.", "192.168.", "127.", "::1")):
-                            return ip 
-        return f"{ip_fallback} (Proxy/Oculta)"
+        # Recorremos cada pieza de información oculta que manda el navegador
+        for valor in headers.values():
+            partes = str(valor).split(',')
+            for ip in partes:
+                ip = ip.strip()
+                # ¿Tiene forma de IP vieja (IPv4) o IP moderna (IPv6)?
+                if ip.count('.') == 3 or ip.count(':') >= 2:
+                    # Si no es una IP privada de los servidores de Google, ¡la atrapamos!
+                    if not ip.startswith(("10.", "172.", "192.168.", "127.", "::1")):
+                        return ip
+                        
+        return "10.13.x.x (Bloqueado por Firewall)"
     except Exception:
         return "IP-No-Detectada"
 
@@ -141,7 +139,6 @@ def vista_residente():
         <h3 style='text-align: center; color: #FFFFFF; margin-top: 0; margin-bottom: 20px; font-family: sans-serif;'>Resumen {anio_sel}</h3>
         <div style='display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; text-align: center;'>
         """
-        
         meses = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
         for i, mes in enumerate(meses):
             mes_num = i + 1
@@ -151,7 +148,6 @@ def vista_residente():
             
         html_calendario += "</div><div style='text-align: center; margin-top: 20px; font-size: 12px; color: #888;'>🟢 Pagado | 🔴 Pendiente | ⚪ Sin cargo</div></div>"
         
-        # EL TRUCO DE MAGIA: Removemos saltos de línea y espacios extras para que Markdown no se confunda
         html_limpio = re.sub(r'\s+', ' ', html_calendario)
         st.markdown(html_limpio, unsafe_allow_html=True)
         st.divider()
@@ -184,7 +180,6 @@ def vista_admin():
 
     if menu == "Usuarios":
         st.title("Gestión de Residentes y Credenciales")
-        # (Se mantiene igual tu tabla de usuarios)
         usuarios = list(db["usuarios"].find())
         if usuarios:
             df_users = pd.DataFrame(usuarios)[["nombre", "casa", "rol", "clave"]]
@@ -206,7 +201,6 @@ def vista_admin():
             st.markdown(f"### ⚙️ Gestionar Meses de {anio_sel}")
             meses = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
             
-            # SOLUCIÓN CELULAR: Generamos filas cronológicas para que no salte de Ene a Abr en móviles
             for fila in range(4):
                 cols = st.columns(3)
                 for col in range(3):
