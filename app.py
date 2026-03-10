@@ -5,6 +5,7 @@ import pandas as pd
 import time
 import re
 import requests
+import pydeck as pdk # NUEVA LIBRERÍA NATIVA PARA MAPAS AVANZADOS
 
 # --- CONFIGURACIÓN DE LA PÁGINA ---
 st.set_page_config(page_title="Grapevine Web", layout="wide", page_icon="🍇")
@@ -44,9 +45,8 @@ def obtener_ip_real():
 def obtener_coordenadas(ip):
     """Busca lat/lon. Si es IP local, usa UTVT por defecto para el mapa escolar."""
     try:
-        # Si es una IP de módem local, forzamos coordenadas de la escuela para la exposición
         if ip.startswith(("10.", "172.", "192.168.", "127.", "::1")) or "Local" in ip:
-            return 19.3333, -99.4761 # Coordenadas base UTVT/Toluca
+            return 19.3333, -99.4761 # Coordenadas base UTVT
             
         respuesta = requests.get(f"https://get.geojs.io/v1/ip/geo/{ip}.json", timeout=3)
         if respuesta.status_code == 200:
@@ -54,7 +54,6 @@ def obtener_coordenadas(ip):
             return float(datos["latitude"]), float(datos["longitude"])
     except Exception:
         pass
-    # Respaldo de seguridad si falla el internet
     return 19.3333, -99.4761
 
 def registrar_evento_soc(usuario_intentado, alerta):
@@ -74,7 +73,7 @@ def login(usuario, clave):
     user = db["usuarios"].find_one({"nombre": usuario})
     
     if user:
-        # 1. Checar Bloqueo de 10 segundos
+        # Checar Bloqueo de 10 segundos
         if "bloqueado_hasta" in user and user["bloqueado_hasta"]:
             if datetime.now() < user["bloqueado_hasta"]:
                 faltan = int((user["bloqueado_hasta"] - datetime.now()).total_seconds())
@@ -91,13 +90,12 @@ def login(usuario, clave):
                     st.rerun()
                 return
 
-        # 2. SISTEMA ANTI-CLONACIÓN (SESIÓN ÚNICA)
+        # SISTEMA ANTI-CLONACIÓN
         if user.get("sesion_activa") == True:
             st.error("⚠️ ALERTA: Esta cuenta ya está abierta en otro dispositivo.")
             registrar_evento_soc(usuario, "INTENTO DE DOBLE SESIÓN (POSIBLE CLONACIÓN)")
             return
 
-        # 3. Validar Contraseña
         if user.get("clave") == clave:
             db["usuarios"].update_one({"_id": user["_id"]}, {"$set": {"intentos_fallidos": 0, "sesion_activa": True}})
             registrar_evento_soc(usuario, "INICIO DE SESIÓN EXITOSO")
@@ -236,7 +234,6 @@ def vista_admin():
             st.table(df_users.set_index("Nombre"))
 
     elif menu == "Pagos y Finanzas":
-        # === ESTE ES EL BLOQUE EXACTO RESTAURADO QUE NO SE VOLVERÁ A MOVER ===
         st.title("Control Financiero")
         usuarios = list(db["usuarios"].find({"rol": "user"}))
         opciones = [f"{u['nombre']} | Casa: {u.get('casa')}" for u in usuarios]
@@ -333,14 +330,53 @@ def vista_admin():
                 db["bitacora"].delete_many({})
                 st.rerun()
 
+        # --- EL NUEVO MAPA AVANZADO TIPO GOOGLE MAPS ---
         st.subheader("🌍 Mapa de Rastreo de Conexiones")
-        # El mapa ahora siempre mostrará datos porque inyectamos coordenadas por defecto
         eventos_con_geo = [e for e in eventos if e.get("lat") is not None and e.get("lon") is not None]
         
         if eventos_con_geo:
-            df_mapa = pd.DataFrame(eventos_con_geo)[["lat", "lon"]]
-            st.map(df_mapa, zoom=4, use_container_width=True)
-            st.caption("Puntos detectados por las conexiones a la red.")
+            mapa_data = []
+            for e in eventos_con_geo:
+                # Si la latitud es exactamente la de la UTVT, le ponemos el nombre
+                lugar = "📍 UTVT (Universidad)" if e.get("lat") == 19.3333 else "📍 Conexión Externa"
+                mapa_data.append({"lat": e.get("lat"), "lon": e.get("lon"), "lugar": lugar})
+            
+            df_mapa = pd.DataFrame(mapa_data)
+            
+            # Capas del mapa interactivo
+            capa_puntos = pdk.Layer(
+                "ScatterplotLayer",
+                data=df_mapa,
+                get_position="[lon, lat]",
+                get_color="[255, 50, 50, 200]", # Marcador rojo
+                get_radius=200, # Tamaño del marcador
+            )
+            capa_texto = pdk.Layer(
+                "TextLayer",
+                data=df_mapa,
+                get_position="[lon, lat]",
+                get_text="lugar",
+                get_color="[255, 255, 255, 255]", # Texto en color blanco
+                get_size=20,
+                get_alignment_baseline="'bottom'",
+            )
+            vista_inicial = pdk.ViewState(
+                latitude=19.3333,
+                longitude=-99.4761,
+                zoom=14,
+                pitch=45, # Esto inclina el mapa para dar efecto 3D
+            )
+            
+            # Renderizamos el mapa con herramienta de información (tooltip)
+            st.pydeck_chart(pdk.Deck(
+                map_style=None, 
+                layers=[capa_puntos, capa_texto],
+                initial_view_state=vista_inicial,
+                tooltip={"html": "<b>{lugar}</b><br/>Latitud: {lat}<br/>Longitud: {lon}"}
+            ))
+            st.caption("Pasa el mouse (o toca en celular) el punto rojo para ver los detalles de la ubicación.")
+        else:
+            st.info("Aún no hay suficientes datos para generar el mapa.")
 
         st.divider()
 
