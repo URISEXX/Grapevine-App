@@ -3,7 +3,6 @@ import pymongo
 from datetime import datetime, timedelta
 import pandas as pd
 import time
-import re
 
 # --- CONFIGURACIÓN DE LA PÁGINA ---
 st.set_page_config(page_title="Grapevine Web", layout="wide", page_icon="🍇")
@@ -31,29 +30,18 @@ if 'rol' not in st.session_state:
 # LÓGICA DE SEGURIDAD (SOC)
 # ======================================================
 def obtener_ip_real():
-    """RADAR CALIBRADO: Usa Regex para no confundirse con el navegador (Mozilla)"""
+    """Obtiene la IP directamente de la cabecera estándar de Streamlit Cloud"""
     try:
-        headers = {k.lower(): str(v) for k, v in st.context.headers.items()}
+        headers = st.context.headers
+        # Streamlit Cloud siempre inyecta la IP real del usuario aquí
+        ip_header = headers.get("X-Forwarded-For") or headers.get("x-forwarded-for")
         
-        # 1. Búsqueda limpia en cabeceras estándar
-        for cabecera in ["x-forwarded-for", "x-real-ip", "client-ip"]:
-            if cabecera in headers:
-                lista_ips = headers[cabecera].split(",")
-                for ip in lista_ips:
-                    ip = ip.strip()
-                    if ip and not ip.startswith(("10.", "172.", "192.168.", "127.", "::1")):
-                        return ip 
-                        
-        # 2. Francotirador Regex (Busca formato exacto de IP en el fondo)
-        for valor in headers.values():
-            # Esto busca específicamente 4 bloques de números separados por puntos
-            match_ipv4 = re.search(r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b', str(valor))
-            if match_ipv4:
-                ip_encontrada = match_ipv4.group()
-                if not ip_encontrada.startswith(("10.", "172.", "192.168.", "127.")):
-                    return ip_encontrada
-                    
-        return "10.13.x.x (Proxy/Firewall)"
+        if ip_header:
+            # Si el proxy manda varias, la primera siempre es la del celular/PC original
+            ip_real = ip_header.split(",")[0].strip()
+            return ip_real
+            
+        return "127.0.0.1 (Local)"
     except Exception:
         return "IP-No-Detectada"
 
@@ -141,22 +129,35 @@ def vista_residente():
         st.header("Estado de Cuenta")
         anio_sel = st.number_input("Selecciona el Año:", min_value=2020, max_value=2030, value=datetime.now().year)
         
-        html_calendario = f"""
-        <div style='background-color: #1E1E1E; padding: 20px; border-radius: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); max-width: 350px; margin: 10px auto; border: 1px solid #333;'>
-        <h3 style='text-align: center; color: #FFFFFF; margin-top: 0; margin-bottom: 20px; font-family: sans-serif;'>Resumen {anio_sel}</h3>
-        <div style='display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; text-align: center;'>
-        """
+        # EL WIDGET ORIGINAL INTACTO
+        html_calendario = f"""<div style="background-color: #1E1E1E; padding: 20px; border-radius: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); max-width: 350px; margin: 10px auto; border: 1px solid #333;">
+<h3 style="text-align: center; color: #FFFFFF; margin-top: 0; margin-bottom: 20px; font-family: sans-serif;">Resumen {anio_sel}</h3>
+<div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; text-align: center;">"""
+        
         meses = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
+        
         for i, mes in enumerate(meses):
             mes_num = i + 1
-            pago = db["pagos"].find_one({"casa": u['casa'], "tipo": "Mantenimiento", "fecha": {"$regex": f"^{anio_sel}-{mes_num:02d}"}})
-            estado = "🟢" if pago and pago['estado'] == 'Pagado' else ("🔴" if pago else "⚪")
-            html_calendario += f"<div><div style='color: #A0A0A0; font-size: 15px; font-weight: bold; margin-bottom: 5px;'>{mes}</div><div style='font-size: 24px;'>{estado}</div></div>"
+            patron = f"^{anio_sel}-{mes_num:02d}"
+            pago = db["pagos"].find_one({"casa": u['casa'], "tipo": "Mantenimiento", "fecha": {"$regex": patron}})
             
-        html_calendario += "</div><div style='text-align: center; margin-top: 20px; font-size: 12px; color: #888;'>🟢 Pagado | 🔴 Pendiente | ⚪ Sin cargo</div></div>"
+            estado = "⚪"
+            if pago: estado = "🟢" if pago['estado'] == 'Pagado' else "🔴"
+            
+            html_calendario += f"""
+<div>
+<div style="color: #A0A0A0; font-size: 15px; font-weight: bold; margin-bottom: 5px;">{mes}</div>
+<div style="font-size: 24px;">{estado}</div>
+</div>"""
+            
+        html_calendario += """
+</div>
+<div style="text-align: center; margin-top: 20px; font-size: 12px; color: #888;">
+🟢 Pagado &nbsp;|&nbsp; 🔴 Pendiente &nbsp;|&nbsp; ⚪ Sin cargo
+</div>
+</div>"""
         
-        html_limpio = re.sub(r'\s+', ' ', html_calendario)
-        st.markdown(html_limpio, unsafe_allow_html=True)
+        st.markdown(html_calendario, unsafe_allow_html=True)
         st.divider()
         
         st.subheader(f"Historial Detallado ({anio_sel})")
@@ -205,27 +206,35 @@ def vista_admin():
             st.divider()
             anio_sel = st.number_input("Año de Gestión:", min_value=2020, max_value=2030, value=datetime.now().year)
 
-            # WIDGET ADMIN ARREGLADO (AHORA SÍ SE APLICÓ EL LIMPIADOR HTML)
-            html_calendario = f"""
-            <div style='background-color: #1E1E1E; padding: 20px; border-radius: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); max-width: 350px; margin: 10px auto; border: 1px solid #333;'>
-            <h3 style='text-align: center; color: #FFFFFF; margin-top: 0; margin-bottom: 20px; font-family: sans-serif;'>Resumen {anio_sel}</h3>
-            <div style='display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; text-align: center;'>
-            """
+            # EL WIDGET ORIGINAL INTACTO PARA EL ADMIN
+            html_calendario = f"""<div style="background-color: #1E1E1E; padding: 20px; border-radius: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); max-width: 350px; margin: 10px auto; border: 1px solid #333;">
+<h3 style="text-align: center; color: #FFFFFF; margin-top: 0; margin-bottom: 20px; font-family: sans-serif;">Resumen {anio_sel}</h3>
+<div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; text-align: center;">"""
+            
             meses = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
+            
             for i, mes in enumerate(meses):
                 mes_num = i + 1
-                pago = db["pagos"].find_one({"usuario_id": usuario_actual["_id"], "tipo": "Mantenimiento", "fecha": {"$regex": f"^{anio_sel}-{mes_num:02d}"}})
-                estado = "🟢" if pago and pago['estado'] == 'Pagado' else ("🔴" if pago else "⚪")
-                html_calendario += f"<div><div style='color: #A0A0A0; font-size: 15px; font-weight: bold; margin-bottom: 5px;'>{mes}</div><div style='font-size: 24px;'>{estado}</div></div>"
+                patron = f"^{anio_sel}-{mes_num:02d}"
+                pago = db["pagos"].find_one({"usuario_id": usuario_actual["_id"], "tipo": "Mantenimiento", "fecha": {"$regex": patron}})
                 
-            html_calendario += "</div></div>"
-            html_limpio = re.sub(r'\s+', ' ', html_calendario)
-            st.markdown(html_limpio, unsafe_allow_html=True)
+                estado = "⚪"
+                if pago: estado = "🟢" if pago['estado'] == 'Pagado' else "🔴"
+                
+                html_calendario += f"""
+<div>
+<div style="color: #A0A0A0; font-size: 15px; font-weight: bold; margin-bottom: 5px;">{mes}</div>
+<div style="font-size: 24px;">{estado}</div>
+</div>"""
+                
+            html_calendario += """
+</div>
+</div>"""
+            st.markdown(html_calendario, unsafe_allow_html=True)
             st.divider()
 
             st.markdown(f"### ⚙️ Gestionar Meses de {anio_sel}")
             
-            # ORDEN CRONOLÓGICO GARANTIZADO EN MÓVIL
             for fila in range(4):
                 cols = st.columns(3)
                 for col in range(3):
