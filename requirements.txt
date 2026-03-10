@@ -1,4 +1,6 @@
 streamlit
 pymongo
 pandas
+
 dnspython
+requests
