@@ -31,22 +31,29 @@ if 'rol' not in st.session_state:
 # LÓGICA DE SEGURIDAD (SOC)
 # ======================================================
 def obtener_ip_real():
-    """RADAR PROFUNDO: Escanea absolutamente todas las cabeceras buscando IPs reales"""
+    """RADAR CALIBRADO: Usa Regex para no confundirse con el navegador (Mozilla)"""
     try:
-        headers = st.context.headers
+        headers = {k.lower(): str(v) for k, v in st.context.headers.items()}
         
-        # Recorremos cada pieza de información oculta que manda el navegador
-        for valor in headers.values():
-            partes = str(valor).split(',')
-            for ip in partes:
-                ip = ip.strip()
-                # ¿Tiene forma de IP vieja (IPv4) o IP moderna (IPv6)?
-                if ip.count('.') == 3 or ip.count(':') >= 2:
-                    # Si no es una IP privada de los servidores de Google, ¡la atrapamos!
-                    if not ip.startswith(("10.", "172.", "192.168.", "127.", "::1")):
-                        return ip
+        # 1. Búsqueda limpia en cabeceras estándar
+        for cabecera in ["x-forwarded-for", "x-real-ip", "client-ip"]:
+            if cabecera in headers:
+                lista_ips = headers[cabecera].split(",")
+                for ip in lista_ips:
+                    ip = ip.strip()
+                    if ip and not ip.startswith(("10.", "172.", "192.168.", "127.", "::1")):
+                        return ip 
                         
-        return "10.13.x.x (Bloqueado por Firewall)"
+        # 2. Francotirador Regex (Busca formato exacto de IP en el fondo)
+        for valor in headers.values():
+            # Esto busca específicamente 4 bloques de números separados por puntos
+            match_ipv4 = re.search(r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b', str(valor))
+            if match_ipv4:
+                ip_encontrada = match_ipv4.group()
+                if not ip_encontrada.startswith(("10.", "172.", "192.168.", "127.")):
+                    return ip_encontrada
+                    
+        return "10.13.x.x (Proxy/Firewall)"
     except Exception:
         return "IP-No-Detectada"
 
@@ -198,9 +205,27 @@ def vista_admin():
             st.divider()
             anio_sel = st.number_input("Año de Gestión:", min_value=2020, max_value=2030, value=datetime.now().year)
 
-            st.markdown(f"### ⚙️ Gestionar Meses de {anio_sel}")
+            # WIDGET ADMIN ARREGLADO (AHORA SÍ SE APLICÓ EL LIMPIADOR HTML)
+            html_calendario = f"""
+            <div style='background-color: #1E1E1E; padding: 20px; border-radius: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); max-width: 350px; margin: 10px auto; border: 1px solid #333;'>
+            <h3 style='text-align: center; color: #FFFFFF; margin-top: 0; margin-bottom: 20px; font-family: sans-serif;'>Resumen {anio_sel}</h3>
+            <div style='display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; text-align: center;'>
+            """
             meses = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
+            for i, mes in enumerate(meses):
+                mes_num = i + 1
+                pago = db["pagos"].find_one({"usuario_id": usuario_actual["_id"], "tipo": "Mantenimiento", "fecha": {"$regex": f"^{anio_sel}-{mes_num:02d}"}})
+                estado = "🟢" if pago and pago['estado'] == 'Pagado' else ("🔴" if pago else "⚪")
+                html_calendario += f"<div><div style='color: #A0A0A0; font-size: 15px; font-weight: bold; margin-bottom: 5px;'>{mes}</div><div style='font-size: 24px;'>{estado}</div></div>"
+                
+            html_calendario += "</div></div>"
+            html_limpio = re.sub(r'\s+', ' ', html_calendario)
+            st.markdown(html_limpio, unsafe_allow_html=True)
+            st.divider()
+
+            st.markdown(f"### ⚙️ Gestionar Meses de {anio_sel}")
             
+            # ORDEN CRONOLÓGICO GARANTIZADO EN MÓVIL
             for fila in range(4):
                 cols = st.columns(3)
                 for col in range(3):
