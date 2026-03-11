@@ -32,6 +32,17 @@ if 'rol' not in st.session_state:
 # ======================================================
 # LÓGICA DE SEGURIDAD (SOC Y MAPAS)
 # ======================================================
+
+# Paleta dinámica para asignar a cada IP un color único
+PALETA_COLORES = [
+    ([255, 50, 50, 200], "🔴"),   # Rojo
+    ([50, 150, 255, 200], "🔵"),  # Azul
+    ([50, 255, 50, 200], "🟢"),   # Verde
+    ([255, 200, 50, 200], "🟡"),  # Amarillo
+    ([200, 50, 255, 200], "🟣"),  # Morado
+    ([255, 120, 50, 200], "🟠")   # Naranja
+]
+
 def obtener_ip_real():
     try:
         headers = st.context.headers
@@ -42,24 +53,26 @@ def obtener_ip_real():
     except Exception:
         return "IP-No-Detectada"
 
-def obtener_coordenadas(ip):
-    """Busca lat/lon real. Retorna None si es local o privada para no falsear el mapa."""
+def obtener_datos_geo(ip):
+    """Busca lat, lon y ahora también la Ciudad/País de origen."""
     try:
-        # Si es una IP local/privada o proxy, no la mapeamos
         if ip.startswith(("10.", "172.", "192.168.", "127.", "::1")) or "Local" in ip or "Proxy" in ip:
-            return None, None
+            return None, None, "Red Local / Privada"
             
         respuesta = requests.get(f"https://get.geojs.io/v1/ip/geo/{ip}.json", timeout=3)
         if respuesta.status_code == 200:
             datos = respuesta.json()
-            return float(datos["latitude"]), float(datos["longitude"])
+            ciudad = datos.get("city", "Desconocida")
+            pais = datos.get("country", "")
+            ubicacion = f"{ciudad}, {pais}".strip(", ")
+            return float(datos["latitude"]), float(datos["longitude"]), ubicacion
     except Exception:
         pass
-    return None, None
+    return None, None, "Ubicación Desconocida"
 
 def registrar_evento_soc(usuario_intentado, alerta):
     ip_real = obtener_ip_real()
-    lat, lon = obtener_coordenadas(ip_real)
+    lat, lon, ubicacion = obtener_datos_geo(ip_real)
     
     db["bitacora"].insert_one({
         "fecha_hora": datetime.now(),
@@ -67,7 +80,8 @@ def registrar_evento_soc(usuario_intentado, alerta):
         "usuario_intentado": usuario_intentado if usuario_intentado else "desconocido",
         "alerta": alerta,
         "lat": lat,
-        "lon": lon
+        "lon": lon,
+        "ubicacion": ubicacion
     })
 
 def login(usuario, clave):
@@ -317,7 +331,7 @@ def vista_admin():
         
         ataques_clonacion = [e for e in eventos if "CLONACIÓN" in str(e.get("alerta", ""))]
         if ataques_clonacion:
-            st.warning("⚠️ **ALERTA DE SEGURIDAD:** Se han detectado intentos de clonación de sesión. Revisa la tabla inferior y el mapa de calor.")
+            st.warning("⚠️ **ALERTA DE SEGURIDAD:** Se han detectado intentos de clonación de sesión. Revisa la tabla inferior y el mapa.")
         
         col1, col2, col3 = st.columns(3)
         with col1:
@@ -329,18 +343,30 @@ def vista_admin():
                 db["bitacora"].delete_many({})
                 st.rerun()
 
+        # === ASIGNACIÓN DE COLORES DINÁMICOS POR IP ===
+        ips_unicas = list(set([e.get("ip", "Desconocida") for e in eventos]))
+        mapa_colores = {}
+        for idx, ip_unica in enumerate(ips_unicas):
+            # Asigna un color y emoji diferente a cada IP iterando la paleta
+            mapa_colores[ip_unica] = PALETA_COLORES[idx % len(PALETA_COLORES)]
+
+        # --- MAPA DE RASTREO CON COLORES ---
         st.subheader("🌍 Mapa de Rastreo de Conexiones Reales")
-        # Filtramos IPs que tengan lat y lon verdaderas
         eventos_con_geo = [e for e in eventos if e.get("lat") is not None and e.get("lon") is not None]
         
         if eventos_con_geo:
             mapa_data = []
             for e in eventos_con_geo:
-                mapa_data.append({"lat": e.get("lat"), "lon": e.get("lon"), "lugar": f"📍 IP: {e.get('ip')}"})
+                ip_actual = e.get("ip")
+                rgb, emoji = mapa_colores.get(ip_actual, ([200, 200, 200, 200], "⚪"))
+                mapa_data.append({
+                    "lat": e.get("lat"), 
+                    "lon": e.get("lon"), 
+                    "lugar": f"IP: {ip_actual} ({e.get('ubicacion', 'Desconocida')})",
+                    "color_rgb": rgb
+                })
             
             df_mapa = pd.DataFrame(mapa_data)
-            
-            # Centramos el mapa en la IP más reciente detectada
             lat_centro = df_mapa.iloc[0]["lat"]
             lon_centro = df_mapa.iloc[0]["lon"]
             
@@ -348,43 +374,40 @@ def vista_admin():
                 "ScatterplotLayer",
                 data=df_mapa,
                 get_position="[lon, lat]",
-                get_color="[255, 50, 50, 200]",
-                get_radius=8000, # Ajuste del tamaño del marcador en el mapa
+                get_fill_color="color_rgb", # USA EL COLOR DINÁMICO
+                get_radius=2000, # MARCADOR MÁS PEQUEÑO Y PRECISO
+                pickable=True
             )
-            capa_texto = pdk.Layer(
-                "TextLayer",
-                data=df_mapa,
-                get_position="[lon, lat]",
-                get_text="lugar",
-                get_color="[255, 255, 255, 255]",
-                get_size=16,
-                get_alignment_baseline="'bottom'",
-            )
-            vista_inicial = pdk.ViewState(
-                latitude=lat_centro,
-                longitude=lon_centro,
-                zoom=10, # Acercamiento dinámico a la zona detectada
-                pitch=45,
-            )
+            vista_inicial = pdk.ViewState(latitude=lat_centro, longitude=lon_centro, zoom=10, pitch=45)
             
             st.pydeck_chart(pdk.Deck(
                 map_style=None, 
-                layers=[capa_puntos, capa_texto],
+                layers=[capa_puntos],
                 initial_view_state=vista_inicial,
-                tooltip={"html": "<b>{lugar}</b><br/>Latitud: {lat}<br/>Longitud: {lon}"}
+                tooltip={"html": "<b>📍 {lugar}</b>"}
             ))
-            st.caption("Conexiones públicas detectadas (Las IPs locales quedan excluidas por seguridad).")
         else:
             st.info("Aún no hay suficientes datos públicos para generar el mapa. (Las IPs locales no se muestran).")
 
         st.divider()
 
+        # --- TABLA CON EMOJIS DE COLOR Y UBICACIÓN ---
         st.subheader("Registros de Seguridad Recientes")
         if eventos:
-            df_eventos = pd.DataFrame(eventos)
-            df_eventos["fecha_hora"] = df_eventos["fecha_hora"].dt.strftime("%d/%m/%Y %H:%M:%S")
-            df_eventos = df_eventos[["fecha_hora", "ip", "usuario_intentado", "alerta"]]
-            df_eventos = df_eventos.rename(columns={"fecha_hora": "FECHA Y HORA", "ip": "DIRECCIÓN IP", "usuario_intentado": "USUARIO INTENTADO", "alerta": "ALERTA"})
+            eventos_formateados = []
+            for e in eventos:
+                ip = e.get("ip", "Desconocida")
+                _, emoji = mapa_colores.get(ip, ([200, 200, 200, 200], "⚪"))
+                # Reconstruimos el evento con el formato visual bonito
+                eventos_formateados.append({
+                    "FECHA Y HORA": e["fecha_hora"].strftime("%d/%m/%Y %H:%M:%S"),
+                    "DIRECCIÓN IP": f"{emoji} {ip}",
+                    "UBICACIÓN": e.get("ubicacion", "Desconocida"),
+                    "USUARIO INTENTADO": e.get("usuario_intentado", "desconocido"),
+                    "ALERTA": e.get("alerta", "")
+                })
+                
+            df_eventos = pd.DataFrame(eventos_formateados)
             st.dataframe(df_eventos, use_container_width=True, hide_index=True)
         else:
             st.info("Sin anomalías. El sistema está limpio.")
