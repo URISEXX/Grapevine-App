@@ -204,7 +204,7 @@ def vista_residente():
 
     with tab2:
         st.header("Línea Directa de Seguridad")
-        numero_admin = "527220000000" # <--- CAMBIA ESTO POR TU NÚMERO
+        numero_admin = "7227722801" # <--- CAMBIA ESTO POR TU NÚMERO
         mensaje = f"Hola Seguridad, soy {u['nombre']} de la casa {u.get('casa', 'S/N')}. Requiero asistencia para un reporte:"
         link_wa = f"https://wa.me/{numero_admin}?text={mensaje.replace(' ', '%20')}"
         st.link_button("🟢 Enviar WhatsApp a Seguridad", link_wa, use_container_width=True)
@@ -401,3 +401,4 @@ if st.session_state['usuario']:
         vista_residente()
 else:
     mostrar_login()
+
