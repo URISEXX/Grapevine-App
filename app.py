@@ -34,7 +34,6 @@ if 'rol' not in st.session_state:
 # ======================================================
 
 def hora_mexico():
-    """Corrige el desfase de la nube para que coincida con el horario de México (UTC-6)"""
     return datetime.utcnow() - timedelta(hours=6)
 
 def obtener_ip_real():
@@ -315,12 +314,14 @@ def vista_admin():
                                 db["pagos"].update_one({"_id": ex["_id"]}, {"$set": {"estado": "Pagado"}})
                                 st.rerun()
 
-    elif menu == "Centro Seguro :)🚨":
+    elif menu == "Centro SOC 🚨":
         st.title("🛡️ TASSFLOW SECURITY - SOC")
         st.markdown("<p style='color: #888;'>Reporte Ejecutivo de Seguridad y Rastreo Geográfico</p>", unsafe_allow_html=True)
         st.error("🛡️ **Estado del Sistema: PROTEGIDO**\n\nSistema Anti-Clonación activado. Rastreo de red activo.")
         
-        eventos = list(db["bitacora"].find().sort("fecha_hora", -1))
+        # EL SALVAVIDAS: Contamos todos para presumir el número, pero solo pintamos los últimos 100
+        total_eventos_db = db["bitacora"].count_documents({})
+        eventos = list(db["bitacora"].find().sort("fecha_hora", -1).limit(100))
         
         ataques_clonacion = [e for e in eventos if "CLONACIÓN" in str(e.get("alerta", ""))]
         if ataques_clonacion:
@@ -328,7 +329,7 @@ def vista_admin():
         
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.metric("TOTAL EVENTOS", f"{len(eventos)}")
+            st.metric("TOTAL EVENTOS", f"{total_eventos_db}")
         with col2:
             st.metric("ESTADO RED", "ACTIVO 🟢")
         with col3:
@@ -336,7 +337,6 @@ def vista_admin():
                 db["bitacora"].delete_many({})
                 st.rerun()
 
-        # --- MAPA DE RASTREO LIMPIO (SÓLO PUNTITOS) ---
         st.subheader("🌍 Mapa de Rastreo de Conexiones Reales")
         eventos_con_geo = [e for e in eventos if e.get("lat") is not None and e.get("lon") is not None]
         
@@ -357,15 +357,15 @@ def vista_admin():
                 "ScatterplotLayer",
                 data=df_mapa,
                 get_position="[lon, lat]",
-                get_fill_color="[255, 50, 50, 200]", # Color rojo fijo y serio
-                get_radius=1500, # Punto chiquito y preciso
+                get_fill_color="[255, 50, 50, 200]",
+                get_radius=1500,
                 pickable=True
             )
             vista_inicial = pdk.ViewState(latitude=lat_centro, longitude=lon_centro, zoom=10, pitch=45)
             
             st.pydeck_chart(pdk.Deck(
                 map_style=None, 
-                layers=[capa_puntos], # Se quitó la capa de texto (letras en el mapa)
+                layers=[capa_puntos],
                 initial_view_state=vista_inicial,
                 tooltip={"html": "<b>📍 {lugar}</b>"}
             ))
@@ -374,14 +374,13 @@ def vista_admin():
 
         st.divider()
 
-        # --- TABLA DE REGISTROS LIMPIA ---
         st.subheader("Registros de Seguridad Recientes")
         if eventos:
             eventos_formateados = []
             for e in eventos:
                 eventos_formateados.append({
                     "FECHA Y HORA": e["fecha_hora"].strftime("%d/%m/%Y %H:%M:%S"),
-                    "DIRECCIÓN IP": e.get("ip", "Desconocida"), # Sin emojis
+                    "DIRECCIÓN IP": e.get("ip", "Desconocida"),
                     "UBICACIÓN": e.get("ubicacion", "Desconocida"),
                     "USUARIO INTENTADO": e.get("usuario_intentado", "desconocido"),
                     "ALERTA": e.get("alerta", "")
@@ -402,5 +401,3 @@ if st.session_state['usuario']:
         vista_residente()
 else:
     mostrar_login()
-
-
