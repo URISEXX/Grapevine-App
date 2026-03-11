@@ -33,15 +33,9 @@ if 'rol' not in st.session_state:
 # LÓGICA DE SEGURIDAD (SOC Y MAPAS)
 # ======================================================
 
-# Paleta dinámica para asignar a cada IP un color único
-PALETA_COLORES = [
-    ([255, 50, 50, 200], "🔴"),   # Rojo
-    ([50, 150, 255, 200], "🔵"),  # Azul
-    ([50, 255, 50, 200], "🟢"),   # Verde
-    ([255, 200, 50, 200], "🟡"),  # Amarillo
-    ([200, 50, 255, 200], "🟣"),  # Morado
-    ([255, 120, 50, 200], "🟠")   # Naranja
-]
+def hora_mexico():
+    """Corrige el desfase de la nube para que coincida con el horario de México (UTC-6)"""
+    return datetime.utcnow() - timedelta(hours=6)
 
 def obtener_ip_real():
     try:
@@ -54,7 +48,6 @@ def obtener_ip_real():
         return "IP-No-Detectada"
 
 def obtener_datos_geo(ip):
-    """Busca lat, lon y ahora también la Ciudad/País de origen."""
     try:
         if ip.startswith(("10.", "172.", "192.168.", "127.", "::1")) or "Local" in ip or "Proxy" in ip:
             return None, None, "Red Local / Privada"
@@ -75,7 +68,7 @@ def registrar_evento_soc(usuario_intentado, alerta):
     lat, lon, ubicacion = obtener_datos_geo(ip_real)
     
     db["bitacora"].insert_one({
-        "fecha_hora": datetime.now(),
+        "fecha_hora": hora_mexico(),
         "ip": ip_real,
         "usuario_intentado": usuario_intentado if usuario_intentado else "desconocido",
         "alerta": alerta,
@@ -89,8 +82,8 @@ def login(usuario, clave):
     
     if user:
         if "bloqueado_hasta" in user and user["bloqueado_hasta"]:
-            if datetime.now() < user["bloqueado_hasta"]:
-                faltan = int((user["bloqueado_hasta"] - datetime.now()).total_seconds())
+            if hora_mexico() < user["bloqueado_hasta"]:
+                faltan = int((user["bloqueado_hasta"] - hora_mexico()).total_seconds())
                 if faltan > 0:
                     espacio_reloj = st.empty()
                     while faltan > 0:
@@ -118,7 +111,7 @@ def login(usuario, clave):
         else:
             intentos = user.get("intentos_fallidos", 0) + 1
             if intentos >= 3:
-                bloqueo = datetime.now() + timedelta(seconds=10)
+                bloqueo = hora_mexico() + timedelta(seconds=10)
                 db["usuarios"].update_one({"_id": user["_id"]}, {"$set": {"intentos_fallidos": intentos, "bloqueado_hasta": bloqueo}})
                 registrar_evento_soc(usuario, "USUARIO BLOQUEADO TEMPORALMENTE")
                 st.error("⛔ Demasiados intentos fallidos. Tu cuenta ha sido bloqueada. Presiona 'Entrar' de nuevo para ver el reloj.")
@@ -176,7 +169,7 @@ def vista_residente():
 
     with tab1:
         st.header("Estado de Cuenta")
-        anio_sel = st.number_input("Selecciona el Año:", min_value=2020, max_value=2030, value=datetime.now().year)
+        anio_sel = st.number_input("Selecciona el Año:", min_value=2020, max_value=2030, value=hora_mexico().year)
         
         html_calendario = f"""<div style='background-color: #1E1E1E; padding: 20px; border-radius: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); max-width: 350px; margin: 10px auto; border: 1px solid #333;'>
 <h3 style='text-align: center; color: #FFFFFF; margin-top: 0; margin-bottom: 20px; font-family: sans-serif;'>Resumen {anio_sel}</h3>
@@ -256,7 +249,7 @@ def vista_admin():
             nombre_user = seleccion.split(" | ")[0]
             usuario_actual = db["usuarios"].find_one({"nombre": nombre_user})
             st.divider()
-            anio_sel = st.number_input("Año de Gestión:", min_value=2020, max_value=2030, value=datetime.now().year)
+            anio_sel = st.number_input("Año de Gestión:", min_value=2020, max_value=2030, value=hora_mexico().year)
 
             html_calendario = f"""<div style='background-color: #1E1E1E; padding: 20px; border-radius: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); max-width: 350px; margin: 10px auto; border: 1px solid #333;'>
 <h3 style='text-align: center; color: #FFFFFF; margin-top: 0; margin-bottom: 20px; font-family: sans-serif;'>Resumen {anio_sel}</h3>
@@ -286,7 +279,7 @@ def vista_admin():
                 else:
                     st.warning(f"🔴 El mes de {mes_accion} tiene deuda pendiente.")
                     if st.button(f"Cobrar {mes_accion}", use_container_width=True, type="primary"):
-                        db["pagos"].update_one({"_id": pago_actual["_id"]}, {"$set": {"estado": "Pagado", "fecha_pago": datetime.now().strftime("%Y-%m-%d")}})
+                        db["pagos"].update_one({"_id": pago_actual["_id"]}, {"$set": {"estado": "Pagado", "fecha_pago": hora_mexico().strftime("%Y-%m-%d")}})
                         st.rerun()
             else:
                 st.info(f"⚪ No hay cargo generado para {mes_accion}.")
@@ -304,7 +297,7 @@ def vista_admin():
                     c_concepto = st.text_input("Concepto (ej. Multa Ruido)")
                     c_monto = st.text_input("Monto ($)", value="200")
                     c_tipo = st.selectbox("Tipo", ["Multa", "Extra"])
-                    c_fecha = st.date_input("Fecha de Cargo", value=datetime.now())
+                    c_fecha = st.date_input("Fecha de Cargo", value=hora_mexico())
                     if st.form_submit_button("Registrar"):
                         db["pagos"].insert_one({
                             "usuario_id": usuario_actual["_id"], "casa": usuario_actual.get("casa"), "tipo": c_tipo, "concepto": c_concepto, 
@@ -343,27 +336,17 @@ def vista_admin():
                 db["bitacora"].delete_many({})
                 st.rerun()
 
-        # === ASIGNACIÓN DE COLORES DINÁMICOS POR IP ===
-        ips_unicas = list(set([e.get("ip", "Desconocida") for e in eventos]))
-        mapa_colores = {}
-        for idx, ip_unica in enumerate(ips_unicas):
-            # Asigna un color y emoji diferente a cada IP iterando la paleta
-            mapa_colores[ip_unica] = PALETA_COLORES[idx % len(PALETA_COLORES)]
-
-        # --- MAPA DE RASTREO CON COLORES ---
+        # --- MAPA DE RASTREO LIMPIO (SÓLO PUNTITOS) ---
         st.subheader("🌍 Mapa de Rastreo de Conexiones Reales")
         eventos_con_geo = [e for e in eventos if e.get("lat") is not None and e.get("lon") is not None]
         
         if eventos_con_geo:
             mapa_data = []
             for e in eventos_con_geo:
-                ip_actual = e.get("ip")
-                rgb, emoji = mapa_colores.get(ip_actual, ([200, 200, 200, 200], "⚪"))
                 mapa_data.append({
                     "lat": e.get("lat"), 
                     "lon": e.get("lon"), 
-                    "lugar": f"IP: {ip_actual} ({e.get('ubicacion', 'Desconocida')})",
-                    "color_rgb": rgb
+                    "lugar": f"IP: {e.get('ip')} ({e.get('ubicacion', 'Desconocida')})"
                 })
             
             df_mapa = pd.DataFrame(mapa_data)
@@ -374,15 +357,15 @@ def vista_admin():
                 "ScatterplotLayer",
                 data=df_mapa,
                 get_position="[lon, lat]",
-                get_fill_color="color_rgb", # USA EL COLOR DINÁMICO
-                get_radius=2000, # MARCADOR MÁS PEQUEÑO Y PRECISO
+                get_fill_color="[255, 50, 50, 200]", # Color rojo fijo y serio
+                get_radius=1500, # Punto chiquito y preciso
                 pickable=True
             )
             vista_inicial = pdk.ViewState(latitude=lat_centro, longitude=lon_centro, zoom=10, pitch=45)
             
             st.pydeck_chart(pdk.Deck(
                 map_style=None, 
-                layers=[capa_puntos],
+                layers=[capa_puntos], # Se quitó la capa de texto (letras en el mapa)
                 initial_view_state=vista_inicial,
                 tooltip={"html": "<b>📍 {lugar}</b>"}
             ))
@@ -391,17 +374,14 @@ def vista_admin():
 
         st.divider()
 
-        # --- TABLA CON EMOJIS DE COLOR Y UBICACIÓN ---
+        # --- TABLA DE REGISTROS LIMPIA ---
         st.subheader("Registros de Seguridad Recientes")
         if eventos:
             eventos_formateados = []
             for e in eventos:
-                ip = e.get("ip", "Desconocida")
-                _, emoji = mapa_colores.get(ip, ([200, 200, 200, 200], "⚪"))
-                # Reconstruimos el evento con el formato visual bonito
                 eventos_formateados.append({
                     "FECHA Y HORA": e["fecha_hora"].strftime("%d/%m/%Y %H:%M:%S"),
-                    "DIRECCIÓN IP": f"{emoji} {ip}",
+                    "DIRECCIÓN IP": e.get("ip", "Desconocida"), # Sin emojis
                     "UBICACIÓN": e.get("ubicacion", "Desconocida"),
                     "USUARIO INTENTADO": e.get("usuario_intentado", "desconocido"),
                     "ALERTA": e.get("alerta", "")
