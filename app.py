@@ -315,7 +315,7 @@ def vista_admin():
                                 db["pagos"].update_one({"_id": ex["_id"]}, {"$set": {"estado": "Pagado"}})
                                 st.rerun()
 
-    elif menu == "Centro SOC 🚨":
+    elif menu == "Centro Seguro 🚨":
         st.title("🛡️ TASSFLOW SECURITY - SOC")
         st.markdown("<p style='color: #888;'>Reporte Ejecutivo de Seguridad y Rastreo Geográfico</p>", unsafe_allow_html=True)
         st.error("🛡️ **Estado del Sistema: PROTEGIDO**\n\nSistema Anti-Clonación activado. Rastreo de red activo.")
@@ -402,3 +402,4 @@ if st.session_state['usuario']:
         vista_residente()
 else:
     mostrar_login()
+
