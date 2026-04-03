@@ -6,6 +6,9 @@ import time
 import re
 import requests
 import pydeck as pdk
+import numpy as np
+from sklearn.linear_model import LinearRegression
+import random
 
 # --- CONFIGURACIÓN DE LA PÁGINA ---
 st.set_page_config(page_title="Grapevine Web", layout="wide", page_icon="🍇")
@@ -14,7 +17,7 @@ st.set_page_config(page_title="Grapevine Web", layout="wide", page_icon="🍇")
 @st.cache_resource
 def init_connection():
     # Pega tu link de MongoDB Atlas aquí:
-    return pymongo.MongoClient("mongodb+srv://uriel_db:Macuca12.@cluster0.opwh0ou.mongodb.net/?appName=Cluster0")
+    return pymongo.MongoClient("mongodb+srv://usuario:password@cluster...")
 
 try:
     client = init_connection()
@@ -23,11 +26,17 @@ except Exception as e:
     st.error(f"Error conectando a la Base de Datos: {e}")
     st.stop()
 
-# --- GESTIÓN DE SESIÓN ---
+# --- GESTIÓN DE SESIÓN Y VARIABLES IOT/CHAT ---
 if 'usuario' not in st.session_state:
     st.session_state['usuario'] = None
 if 'rol' not in st.session_state:
     st.session_state['rol'] = None
+if 'iot_data' not in st.session_state:
+    st.session_state['iot_data'] = []
+if 'run_iot' not in st.session_state:
+    st.session_state['run_iot'] = False
+if 'mensajes_bot' not in st.session_state:
+    st.session_state['mensajes_bot'] = [{"role": "assistant", "content": "¡Hola! Soy GrapeAssist 🍇, tu asistente virtual de la privada. Puedo ayudarte con dudas sobre: **Pagos, Seguridad, Accesos, Mantenimiento, Estacionamiento y Reglas de Convivencia**. ¿En qué te puedo ayudar hoy?"}]
 
 # ======================================================
 # LÓGICA DE SEGURIDAD (SOC Y MAPAS)
@@ -130,12 +139,30 @@ def logout():
     st.rerun()
 
 # ======================================================
+# LÓGICA IOT
+# ======================================================
+def generar_dato_acceso():
+    return {
+        "Hora": time.strftime("%H:%M:%S"),
+        "Vehículos (Control)": random.randint(0, 5),   
+        "Peatones (Tarjeta)": random.randint(0, 12)    
+    }
+
+def entrenar_modelo_iot(df, columna):
+    if len(df) < 5: return None
+    X = np.arange(len(df)).reshape(-1, 1)
+    y = df[columna].values
+    modelo = LinearRegression()
+    modelo.fit(X, y)
+    return modelo
+
+# ======================================================
 # VISTAS (FRONTEND)
 # ======================================================
 
 def mostrar_login():
     st.title("🍇 Acceso Grapevine")
-    st.markdown("Sistema de Seguridad Digital para Fraccionamientos")
+    st.markdown("Sistema de Seguridad Digital para Privadas")
     
     usuario = st.text_input("Usuario")
     clave = st.text_input("Contraseña", type="password")
@@ -164,7 +191,7 @@ def vista_residente():
     if st.sidebar.button("Cerrar Sesión"):
         logout()
 
-    tab1, tab2 = st.tabs(["💰 Mis Pagos", "🚨 Seguridad y Reportes"])
+    tab1, tab2, tab3 = st.tabs(["💰 Mis Pagos", "🚨 Seguridad y Reportes", "🤖 GrapeAssist (Ayuda)"])
 
     with tab1:
         st.header("Estado de Cuenta")
@@ -204,14 +231,83 @@ def vista_residente():
 
     with tab2:
         st.header("Línea Directa de Seguridad")
-        numero_admin = "7227722801" # <--- CAMBIA ESTO POR TU NÚMERO
+        numero_admin = "527220000000" # <--- CAMBIA ESTO POR TU NÚMERO
         mensaje = f"Hola Seguridad, soy {u['nombre']} de la casa {u.get('casa', 'S/N')}. Requiero asistencia para un reporte:"
         link_wa = f"https://wa.me/{numero_admin}?text={mensaje.replace(' ', '%20')}"
-        st.link_button("🟢 Enviar WhatsApp a Seguridad", link_wa, use_container_width=True)
+        st.link_button("🟢 Enviar WhatsApp a la Administración", link_wa, use_container_width=True)
+
+    with tab3:
+        st.header("🤖 GrapeAssist")
+        st.markdown("Tu asistente virtual 24/7 para dudas sobre la privada.")
+        
+        chat_container = st.container(height=400, border=False)
+        
+        with chat_container:
+            for msg in st.session_state['mensajes_bot']:
+                with st.chat_message(msg["role"], avatar="🍇" if msg["role"] == "assistant" else "👤"):
+                    st.markdown(msg["content"])
+
+        if prompt := st.chat_input("Escribe tu duda aquí..."):
+            st.session_state['mensajes_bot'].append({"role": "user", "content": prompt})
+            
+            p_lower = prompt.lower()
+            
+            # --- EL NUEVO CEREBRO (10 FUNCIONES) ---
+            
+            # 1. EMERGENCIAS (Tienen preferencia sobre todo)
+            if any(word in p_lower for word in ["emergencia", "sospechoso", "robo", "policia", "patrulla", "miedo", "peligro"]):
+                respuesta = "🚨 ¡Tu seguridad es nuestra prioridad! Nuestro Centro SOC monitorea la red 24/7. Si ves algo sospechoso o tienes una emergencia, por favor usa el botón verde de **'Enviar WhatsApp a la Administración'** en la pestaña de al lado para alertarnos inmediatamente."
+            
+            # 2. QUEJAS DE VECINOS
+            elif any(word in p_lower for word in ["ruido", "fiesta", "musica", "fuerte", "escandalo", "molestia"]):
+                respuesta = "Para reportar vecinos con música fuerte o alteraciones al orden, por favor usa el botón verde de **'Enviar WhatsApp a la Administración'** (en la pestaña de Seguridad). \n\nEn tu mensaje incluye:\n1. **Tu número de casa**\n2. **La casa/manzana del vecino infractor**\n3. **El tipo de problema**\n\nAsí la administración podrá darle solución inmediata."
+            
+            # 3. MASCOTAS
+            elif any(word in p_lower for word in ["mascota", "perro", "gato", "caca", "popo", "ladra", "heces", "correa"]):
+                respuesta = "🐶 Por reglamento, las mascotas deben salir con correa a la calle de la privada y es obligación estricta del dueño recoger sus heces. Si el perro de un vecino es agresivo o ladra toda la noche, repórtalo a la Administración."
+
+            # 4. ESTACIONAMIENTO Y COCHERAS
+            elif any(word in p_lower for word in ["estacionamiento", "coche", "auto", "lugar", "cochera", "tapa", "bloquea", "estacionar"]):
+                respuesta = "🚗 El espacio en la calle de la privada es limitado. Tus visitas no deben obstruir las cocheras de los vecinos ni el área de maniobras. Si un auto está bloqueando tu salida, envíanos un mensaje con la foto y las placas."
+
+            # 5. PORTÓN PRINCIPAL
+            elif any(word in p_lower for word in ["porton", "zaguan", "atorado", "cierra", "motor", "descompuesto", "abierto", "puerta"]):
+                respuesta = "⚙️ Si notas que el portón eléctrico principal de la privada se quedó abierto, no cierra o hace un ruido extraño, **repórtalo de inmediato a la Administración**. Por favor, ¡no intentes empujarlo o forzarlo manualmente para no dañar el motor!"
+
+            # 6. MANTENIMIENTO CALLES (Alumbrado)
+            elif any(word in p_lower for word in ["luz", "fundida", "oscuro", "farol", "lampara", "bache", "calle", "alumbrado"]):
+                respuesta = "💡 Si una lámpara de nuestra calle interna está fundida o notas algún desperfecto en el pavimento, repórtalo indicando el número de la casa más cercana para que la administración gestione la reparación."
+
+            # 7. PAQUETERÍA Y VISITAS
+            elif any(word in p_lower for word in ["paquete", "comida", "amazon", "uber", "didi", "mercado libre", "repartidor", "pizza", "rappi", "visita"]):
+                respuesta = "📦 Recuerda que por medidas de seguridad, los repartidores de aplicaciones (Uber, DiDi, Rappi, Amazon, etc.) no ingresan a la privada. **Deberás salir a la avenida principal a recoger tus pedidos.** Para tus visitas, pídeles que te envíen mensaje al llegar para que les abras el portón."
+
+            # 8. INFORMACIÓN GENERAL (Basura, horarios)
+            elif any(word in p_lower for word in ["basura", "horario", "silencio", "reglas", "reglamento", "camion"]):
+                respuesta = "🗑️ **Información de la Privada:**\n- La recolección de **basura** pasa los días Martes y Jueves por la mañana.\n- El horario de **silencio** para evitar multas comienza a las 10:00 PM."
+            
+            # 9. ACCESOS IOT (Chips/Tags)
+            elif any(word in p_lower for word in ["tag", "tarjeta", "rfid", "pluma", "abre", "control", "chip", "acceso"]):
+                respuesta = "Tus accesos con chip peatonal y control vehicular están conectados a nuestra red IoT en tiempo real. **Si tu chip o control falla**, repórtalo directamente con el Administrador de la privada para revisarlo o reponerlo. Recuerda no prestar tus accesos para evitar alertas de clonación en el sistema."
+            
+            # 10. PAGOS
+            elif any(word in p_lower for word in ["pago", "pagar", "mantenimiento", "cuenta", "deposito", "transferencia", "multa", "debo", "mensualidad"]):
+                respuesta = "Para revisar tu historial y cargos, ve a la pestaña '💰 Mis Pagos'. Si necesitas realizar un pago, transfiere a la cuenta CLABE: **012345678901234567** y envía el comprobante por WhatsApp a la administración de la privada."
+            
+            # 11. SALUDOS
+            elif any(word in p_lower for word in ["hola", "buenos", "tardes", "onda", "ayuda", "quien", "ola"]):
+                respuesta = "¡Hola! Soy GrapeAssist 🍇, tu asistente virtual de la privada. Puedo ayudarte con dudas sobre: **Pagos, Seguridad, Accesos, Mantenimiento, Estacionamiento y Reglas de Convivencia**. ¿En qué te puedo ayudar hoy?"
+            
+            # 12. NO ENTENDIÓ (EL NUEVO FALLBACK)
+            else:
+                respuesta = "Aún estoy aprendiendo 🧠. Por ahora, mi sistema solo tiene información sobre: **Pagos, Seguridad, Accesos (Chips/Portón), Estacionamiento, Paquetería, Mascotas, Mantenimiento de calles y Reglas de la privada**. ¡Pregúntame sobre alguno de esos temas!"
+
+            st.session_state['mensajes_bot'].append({"role": "assistant", "content": respuesta})
+            st.rerun()
 
 def vista_admin():
     st.sidebar.title("Panel Admin 🛡️")
-    menu = st.sidebar.radio("Ir a:", ["Usuarios", "Pagos y Finanzas", "Centro SOC 🚨"])
+    menu = st.sidebar.radio("Ir a:", ["Usuarios", "Pagos y Finanzas", "Centro SOC 🚨", "IoT Accesos 📡"])
     if st.sidebar.button("Cerrar Sesión"):
         logout()
 
@@ -319,7 +415,6 @@ def vista_admin():
         st.markdown("<p style='color: #888;'>Reporte Ejecutivo de Seguridad y Rastreo Geográfico</p>", unsafe_allow_html=True)
         st.error("🛡️ **Estado del Sistema: PROTEGIDO**\n\nSistema Anti-Clonación activado. Rastreo de red activo.")
         
-        # EL SALVAVIDAS: Contamos todos para presumir el número, pero solo pintamos los últimos 100
         total_eventos_db = db["bitacora"].count_documents({})
         eventos = list(db["bitacora"].find().sort("fecha_hora", -1).limit(100))
         
@@ -391,6 +486,66 @@ def vista_admin():
         else:
             st.info("Sin anomalías. El sistema está limpio.")
 
+    elif menu == "IoT Accesos 📡":
+        st.title("📡 Monitoreo IoT: Controles y Chips")
+        st.markdown("Panel de tiempo real con sensores RF y tarjetas RFID de la privada.")
+        
+        col_btn1, col_btn2 = st.columns(2)
+        with col_btn1:
+            if st.button("▶ Iniciar Monitoreo", use_container_width=True, type="primary"):
+                st.session_state['run_iot'] = True
+        with col_btn2:
+            if st.button("⏹ Detener Sistema", use_container_width=True):
+                st.session_state['run_iot'] = False
+
+        if st.session_state['run_iot']:
+            st.success("🟢 Sistema de sensores en línea. Recibiendo telemetría...")
+            placeholder = st.empty()
+            
+            while st.session_state['run_iot']:
+                nuevo_dato = generar_dato_acceso()
+                st.session_state['iot_data'].append(nuevo_dato)
+                
+                if len(st.session_state['iot_data']) > 20:
+                    st.session_state['iot_data'].pop(0)
+                
+                df_iot = pd.DataFrame(st.session_state['iot_data'])
+                
+                with placeholder.container():
+                    col1, col2, col3 = st.columns(3)
+                    col1.metric("🚗 Vehículos Entrando", df_iot["Vehículos (Control)"].iloc[-1])
+                    col2.metric("🚶 Peatones (Chip)", df_iot["Peatones (Tarjeta)"].iloc[-1])
+                    col3.metric("⏱ Última Lectura", df_iot["Hora"].iloc[-1])
+                    
+                    st.divider()
+                    
+                    st.subheader("📊 Flujo de Tráfico en Tiempo Real")
+                    df_grafica = df_iot.set_index("Hora")[["Vehículos (Control)", "Peatones (Tarjeta)"]]
+                    st.line_chart(df_grafica, color=["#FF2B2B", "#00E676"]) 
+                    
+                    if df_iot["Vehículos (Control)"].iloc[-1] >= 5:
+                        st.error("🚨 ALERTA SOC: Alto flujo vehicular en acceso principal. Posible embotellamiento.")
+                    if df_iot["Peatones (Tarjeta)"].iloc[-1] >= 10:
+                        st.warning("⚠️ ALERTA: Pico de accesos peatonales detectado.")
+                    
+                    st.divider()
+                    st.subheader("🤖 Predicción de Tráfico con IA")
+                    
+                    modelo_autos = entrenar_modelo_iot(df_iot, "Vehículos (Control)")
+                    modelo_peatones = entrenar_modelo_iot(df_iot, "Peatones (Tarjeta)")
+                    
+                    if modelo_autos and modelo_peatones:
+                        pred_autos = modelo_autos.predict([[len(df_iot)]])[0]
+                        pred_peatones = modelo_peatones.predict([[len(df_iot)]])[0]
+                        
+                        st.info(f"**Estimación para el siguiente ciclo:**\n\n🚗 Se esperan **{abs(int(pred_autos))}** autos.\n🚶 Se esperan **{abs(int(pred_peatones))}** peatones.")
+                    else:
+                        st.caption("Recopilando datos suficientes para entrenar el modelo de Machine Learning...")
+                
+                time.sleep(2)
+        else:
+            st.info("El sistema IoT de los accesos se encuentra en pausa. Presiona Iniciar.")
+
 # ======================================================
 # CONTROLADOR PRINCIPAL
 # ======================================================
@@ -401,4 +556,3 @@ if st.session_state['usuario']:
         vista_residente()
 else:
     mostrar_login()
-
