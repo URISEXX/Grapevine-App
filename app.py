@@ -17,7 +17,7 @@ st.set_page_config(page_title="Grapevine Web", layout="wide", page_icon="🍇")
 @st.cache_resource
 def init_connection():
     # Pega tu link de MongoDB Atlas aquí:
-    return pymongo.MongoClient("mongodb+srv://usuario:password@cluster...")
+    return pymongo.MongoClient("mongodb+srv://uriel_db:Macuca12.@cluster0.opwh0ou.mongodb.net/?appName=Cluster0")
 
 try:
     client = init_connection()
