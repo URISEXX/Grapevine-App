@@ -142,8 +142,9 @@ def logout():
 # LÓGICA IOT
 # ======================================================
 def generar_dato_acceso():
+    # AQUÍ ESTÁ LA CORRECCIÓN: Usa hora_mexico() en lugar de time.strftime
     return {
-        "Hora": time.strftime("%H:%M:%S"),
+        "Hora": hora_mexico().strftime("%H:%M:%S"),
         "Vehículos (Control)": random.randint(0, 5),   
         "Peatones (Tarjeta)": random.randint(0, 12)    
     }
@@ -252,53 +253,39 @@ def vista_residente():
             
             p_lower = prompt.lower()
             
-            # --- EL NUEVO CEREBRO (10 FUNCIONES) ---
-            
-            # 1. EMERGENCIAS (Tienen preferencia sobre todo)
             if any(word in p_lower for word in ["emergencia", "sospechoso", "robo", "policia", "patrulla", "miedo", "peligro"]):
                 respuesta = "🚨 ¡Tu seguridad es nuestra prioridad! Nuestro Centro SOC monitorea la red 24/7. Si ves algo sospechoso o tienes una emergencia, por favor usa el botón verde de **'Enviar WhatsApp a la Administración'** en la pestaña de al lado para alertarnos inmediatamente."
             
-            # 2. QUEJAS DE VECINOS
             elif any(word in p_lower for word in ["ruido", "fiesta", "musica", "fuerte", "escandalo", "molestia"]):
                 respuesta = "Para reportar vecinos con música fuerte o alteraciones al orden, por favor usa el botón verde de **'Enviar WhatsApp a la Administración'** (en la pestaña de Seguridad). \n\nEn tu mensaje incluye:\n1. **Tu número de casa**\n2. **La casa/manzana del vecino infractor**\n3. **El tipo de problema**\n\nAsí la administración podrá darle solución inmediata."
             
-            # 3. MASCOTAS
             elif any(word in p_lower for word in ["mascota", "perro", "gato", "caca", "popo", "ladra", "heces", "correa"]):
                 respuesta = "🐶 Por reglamento, las mascotas deben salir con correa a la calle de la privada y es obligación estricta del dueño recoger sus heces. Si el perro de un vecino es agresivo o ladra toda la noche, repórtalo a la Administración."
 
-            # 4. ESTACIONAMIENTO Y COCHERAS
             elif any(word in p_lower for word in ["estacionamiento", "coche", "auto", "lugar", "cochera", "tapa", "bloquea", "estacionar"]):
                 respuesta = "🚗 El espacio en la calle de la privada es limitado. Tus visitas no deben obstruir las cocheras de los vecinos ni el área de maniobras. Si un auto está bloqueando tu salida, envíanos un mensaje con la foto y las placas."
 
-            # 5. PORTÓN PRINCIPAL
             elif any(word in p_lower for word in ["porton", "zaguan", "atorado", "cierra", "motor", "descompuesto", "abierto", "puerta"]):
                 respuesta = "⚙️ Si notas que el portón eléctrico principal de la privada se quedó abierto, no cierra o hace un ruido extraño, **repórtalo de inmediato a la Administración**. Por favor, ¡no intentes empujarlo o forzarlo manualmente para no dañar el motor!"
 
-            # 6. MANTENIMIENTO CALLES (Alumbrado)
             elif any(word in p_lower for word in ["luz", "fundida", "oscuro", "farol", "lampara", "bache", "calle", "alumbrado"]):
                 respuesta = "💡 Si una lámpara de nuestra calle interna está fundida o notas algún desperfecto en el pavimento, repórtalo indicando el número de la casa más cercana para que la administración gestione la reparación."
 
-            # 7. PAQUETERÍA Y VISITAS
             elif any(word in p_lower for word in ["paquete", "comida", "amazon", "uber", "didi", "mercado libre", "repartidor", "pizza", "rappi", "visita"]):
                 respuesta = "📦 Recuerda que por medidas de seguridad, los repartidores de aplicaciones (Uber, DiDi, Rappi, Amazon, etc.) no ingresan a la privada. **Deberás salir a la avenida principal a recoger tus pedidos.** Para tus visitas, pídeles que te envíen mensaje al llegar para que les abras el portón."
 
-            # 8. INFORMACIÓN GENERAL (Basura, horarios)
             elif any(word in p_lower for word in ["basura", "horario", "silencio", "reglas", "reglamento", "camion"]):
                 respuesta = "🗑️ **Información de la Privada:**\n- La recolección de **basura** pasa los días Martes y Jueves por la mañana.\n- El horario de **silencio** para evitar multas comienza a las 10:00 PM."
             
-            # 9. ACCESOS IOT (Chips/Tags)
             elif any(word in p_lower for word in ["tag", "tarjeta", "rfid", "pluma", "abre", "control", "chip", "acceso"]):
                 respuesta = "Tus accesos con chip peatonal y control vehicular están conectados a nuestra red IoT en tiempo real. **Si tu chip o control falla**, repórtalo directamente con el Administrador de la privada para revisarlo o reponerlo. Recuerda no prestar tus accesos para evitar alertas de clonación en el sistema."
             
-            # 10. PAGOS
             elif any(word in p_lower for word in ["pago", "pagar", "mantenimiento", "cuenta", "deposito", "transferencia", "multa", "debo", "mensualidad"]):
                 respuesta = "Para revisar tu historial y cargos, ve a la pestaña '💰 Mis Pagos'. Si necesitas realizar un pago, transfiere a la cuenta CLABE: **012345678901234567** y envía el comprobante por WhatsApp a la administración de la privada."
             
-            # 11. SALUDOS
             elif any(word in p_lower for word in ["hola", "buenos", "tardes", "onda", "ayuda", "quien", "ola"]):
                 respuesta = "¡Hola! Soy GrapeAssist 🍇, tu asistente virtual de la privada. Puedo ayudarte con dudas sobre: **Pagos, Seguridad, Accesos, Mantenimiento, Estacionamiento y Reglas de Convivencia**. ¿En qué te puedo ayudar hoy?"
             
-            # 12. NO ENTENDIÓ (EL NUEVO FALLBACK)
             else:
                 respuesta = "Aún estoy aprendiendo 🧠. Por ahora, mi sistema solo tiene información sobre: **Pagos, Seguridad, Accesos (Chips/Portón), Estacionamiento, Paquetería, Mascotas, Mantenimiento de calles y Reglas de la privada**. ¡Pregúntame sobre alguno de esos temas!"
 
